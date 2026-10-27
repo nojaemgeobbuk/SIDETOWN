@@ -5,7 +5,10 @@ import Link from 'next/link';
 import { useEffect } from 'react';
 import { actualProgress, buildingStage, expectedProgress, health } from '@/lib/schedule';
 import { useApp } from '@/store/useApp';
-import { IconAlbum, IconCalendar, IconExpand, IconList, IconTown, IconUser } from './icons';
+import { FRIENDS, unreadCount } from '@/lib/social';
+import { EMPTY_PLOTS } from '@/town/map';
+import { IconCalendar, IconCup, IconExpand, IconList, IconMail, IconTown, IconUser } from './icons';
+import PlacePanel from './PlacePanel';
 import ProjectPanel from './ProjectPanel';
 import Voyage from './Voyage';
 
@@ -17,7 +20,11 @@ export default function TownApp() {
   const listMode = useApp((s) => s.listMode);
   const xp = useApp((s) => s.xp);
   const toast = useApp((s) => s.toast);
-  const { setListMode, select } = useApp.getState();
+  const view = useApp((s) => s.view);
+  const messages = useApp((s) => s.messages);
+  const { setListMode, select, openView } = useApp.getState();
+  const unread = unreadCount(messages);
+  const online = FRIENDS.filter((f) => f.status !== 'offline').length;
   const selected = projects.find((p) => p.id === selectedId) ?? null;
   const level = 1 + Math.floor(xp / 100);
   const townDone = projects.reduce((n, p) => n + p.milestones.filter((m) => m.status === 'completed').length, 0);
@@ -30,11 +37,11 @@ export default function TownApp() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') select(null);
+      if (e.key === 'Escape') { select(null); openView(null); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [select]);
+  }, [select, openView]);
 
   return (
     <div className="shell">
@@ -50,12 +57,20 @@ export default function TownApp() {
           <span className="mono xp-num" style={{ fontSize: 12, color: 'var(--muted)' }}>{xp % 100}/100</span>
         </div>
         <div className="friends">
-          <span className="label">접속 2</span>
+          <span className="label">접속 {online}</span>
           <span style={{ display: 'flex' }}>
-            <span className="avatar" style={{ background: '#3a2a26', color: '#f2c8b8' }}>지<span className="dot" style={{ background: 'var(--coral)' }} /></span>
-            <span className="avatar" style={{ background: '#23314a', color: '#bfd0ee' }}>민</span>
+            {FRIENDS.map((f) => (
+              <button key={f.id} className="avatar" title={`${f.name}에게 쪽지`} aria-label={`${f.name}에게 쪽지 (${f.status === 'focus' ? '집중 중' : f.status === 'online' ? '접속 중' : '오프라인'})`} onClick={() => openView({ kind: 'inbox', friendId: f.id })} style={{ background: f.bg, color: f.fg, padding: 0, opacity: f.status === 'offline' ? 0.55 : 1 }}>
+                {f.initial}
+                {f.status !== 'offline' && <span className="dot" style={{ background: f.status === 'focus' ? 'var(--coral)' : 'var(--mint)' }} />}
+              </button>
+            ))}
           </span>
         </div>
+        <button className="icon-btn" aria-label={`쪽지함${unread ? `, 안 읽은 쪽지 ${unread}개` : ''}`} onClick={() => openView({ kind: 'inbox' })} style={{ position: 'relative', width: 40, height: 40, border: '1px solid var(--border)', color: 'var(--text)' }}>
+          <IconMail />
+          {unread > 0 && <span className="mono" style={{ position: 'absolute', top: -4, right: -4, minWidth: 18, height: 18, borderRadius: 9, background: 'var(--coral)', color: '#1a0e0a', fontSize: 10, fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '0 5px' }}>{unread}</span>}
+        </button>
       </header>
 
       <div className="body">
@@ -63,12 +78,12 @@ export default function TownApp() {
           <button className="icon-btn" aria-label="마을" aria-current={!listMode ? 'page' : undefined} onClick={() => setListMode(false)}><IconTown /></button>
           <button className="icon-btn" aria-label="계획 (단계 1.5)" title="계획 화면은 단계 1.5에서 연결돼요" disabled style={{ opacity: 0.45 }}><IconCalendar /></button>
           <button className="icon-btn" aria-label="프로젝트 목록" aria-current={listMode ? 'page' : undefined} onClick={() => setListMode(true)}><IconList /></button>
-          <button className="icon-btn" aria-label="성장 기록 (단계 3)" disabled style={{ opacity: 0.45 }}><IconAlbum /></button>
-          <button className="icon-btn" aria-label="캐릭터 (단계 3)" disabled style={{ opacity: 0.45 }}><IconUser /></button>
+          <button className="icon-btn" aria-label="공용 카페 · 마을 게시판" aria-current={view?.kind === 'cafe' ? 'page' : undefined} onClick={() => openView({ kind: 'cafe' })}><IconCup /></button>
+          <button className="icon-btn" aria-label="내 집 · 캐릭터" aria-current={view?.kind === 'home' ? 'page' : undefined} onClick={() => openView({ kind: 'home' })}><IconUser /></button>
         </nav>
 
         <main className="stage">
-          {!listMode && <TownCanvas panelOpen={!!selected} />}
+          {!listMode && <TownCanvas panelOpen={!!selected || !!view} />}
           {listMode && <ListView />}
 
           {!listMode && (
@@ -81,6 +96,18 @@ export default function TownApp() {
           )}
 
           <div className="hud" style={{ right: 16, bottom: 16 }}>
+            <button
+              className="btn btn-sm"
+              style={{ height: 40 }}
+              onClick={() => {
+                const used = new Set(projects.map((p) => p.plotId));
+                const free = EMPTY_PLOTS.find((pl) => !used.has(pl.id));
+                if (free) openView({ kind: 'new', plotId: free.id });
+                else useApp.getState().notify('빈 부지가 없어요 · 마을 확장 구역은 다음 단계에서 열려요', 'warn');
+              }}
+            >
+              + 새 프로젝트
+            </button>
             <button className="btn btn-sm" onClick={() => setListMode(!listMode)} style={{ height: 40 }}>{listMode ? '마을로 보기' : '목록으로 보기'}</button>
             <Link href="/focus" className="btn btn-sm" style={{ height: 40, textDecoration: 'none', borderColor: 'var(--amber)', color: 'var(--amber)' }}><IconExpand /> 전체 화면 집중</Link>
           </div>
@@ -88,7 +115,7 @@ export default function TownApp() {
           <DevTools />
         </main>
 
-        <ProjectPanel project={selected} />
+        {view ? <PlacePanel view={view} /> : <ProjectPanel project={selected} />}
       </div>
 
       {toast && (

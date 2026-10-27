@@ -4,6 +4,15 @@ import { create } from 'zustand';
 import { sampleProjects, SAMPLE_TODAY } from '@/lib/sample-data';
 import { addDays, buildingStage, nextCondition, rebaseline, reschedule } from '@/lib/schedule';
 import type { ISODate, Project, RescheduleScope } from '@/lib/types';
+import { ME, sampleMessages, sanitizeMessage, type Message } from '@/lib/social';
+import { createProject, type NewProjectInput } from '@/lib/templates';
+
+/** 패널에 열린 장소. 프로젝트가 아닌 곳(카페·집·빈 부지·쪽지함) */
+export type View =
+  | { kind: 'cafe' }
+  | { kind: 'home' }
+  | { kind: 'new'; plotId: string }
+  | { kind: 'inbox'; friendId?: string };
 
 export interface Toast {
   id: number;
@@ -20,8 +29,14 @@ interface AppState {
   toast: Toast | null;
   /** 성장 연출을 위한 마지막 단계 변화 */
   lastGrowth: { projectId: string; stage: number; at: number } | null;
+  view: View | null;
+  messages: Message[];
 
   select: (id: string | null) => void;
+  openView: (v: View | null) => void;
+  sendMessage: (to: string, text: string, projectId?: string) => boolean;
+  markRead: (friendId: string) => void;
+  addProject: (input: Omit<NewProjectInput, 'today'>) => void;
   setListMode: (on: boolean) => void;
   notify: (text: string, tone?: Toast['tone']) => void;
   toggleQuest: (projectId: string, questId: string) => void;
@@ -48,8 +63,25 @@ export const useApp = create<AppState>((set, get) => ({
   listMode: false,
   toast: null,
   lastGrowth: null,
+  view: null,
+  messages: clone(sampleMessages),
 
-  select: (id) => set({ selectedId: id }),
+  select: (id) => set({ selectedId: id, view: null }),
+  openView: (v) => set({ view: v, selectedId: null }),
+  sendMessage: (to, text, projectId) => {
+    const clean = sanitizeMessage(text);
+    if (!clean) return false;
+    const m: Message = { id: `m-${Date.now().toString(36)}`, from: ME, to, text: clean, at: new Date().toISOString(), read: true, projectId };
+    set({ messages: [...get().messages, m] });
+    return true;
+  },
+  markRead: (friendId) =>
+    set({ messages: get().messages.map((m) => (m.from === friendId && m.to === ME && !m.read ? { ...m, read: true } : m)) }),
+  addProject: (input) => {
+    const p = createProject({ ...input, today: get().today });
+    set({ projects: [...get().projects, p], view: null, selectedId: p.id, xp: get().xp + 5 });
+    get().notify(`‘${p.title}’ 착공! 첫 퀘스트부터 시작해요`, 'good');
+  },
   setListMode: (on) => set({ listMode: on }),
   notify: (text, tone = 'info') => set({ toast: { id: toastSeq++, text, tone } }),
 
@@ -159,5 +191,5 @@ export const useApp = create<AppState>((set, get) => ({
   },
 
   reset: () =>
-    set({ projects: clone(sampleProjects), today: SAMPLE_TODAY, xp: 620, selectedId: null, lastGrowth: null, toast: null }),
+    set({ projects: clone(sampleProjects), today: SAMPLE_TODAY, xp: 620, selectedId: null, lastGrowth: null, toast: null, view: null, messages: clone(sampleMessages) }),
 }));

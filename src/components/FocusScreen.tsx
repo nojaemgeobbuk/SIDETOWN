@@ -6,13 +6,9 @@ import { useEffect, useRef, useState } from 'react';
 import { AudioEngine, TRACKS, type Layer } from '@/focus/audioEngine';
 import { advance, format, initial, LENGTHS, pause, remaining, setMode, start, type Mode, type TimerState } from '@/focus/timer';
 import { useApp } from '@/store/useApp';
+import { SCENES, windLabel, type SceneId } from '@/focus/scenes';
+import AmbientLayer from './AmbientLayer';
 import { IconPause, IconPlay, IconSkip } from './icons';
-
-const SCENES = [
-  { id: 'night', label: '밤', src: '/assets/scenes/town-night.jpg', alt: '해 진 뒤의 마을' },
-  { id: 'rain', label: '비 오는 밤', src: '/assets/scenes/town-rain.jpg', alt: '비 오는 밤의 마을' },
-  { id: 'snow', label: '눈 오는 밤', src: '/assets/scenes/town-snow.jpg', alt: '눈 오는 밤의 마을' },
-] as const;
 
 const LAYERS: [Layer, string][] = [['bgm', 'BGM'], ['rain', '빗소리'], ['fire', '모닥불'], ['cafe', '카페 소음'], ['wave', '물결']];
 const MODES: [Mode, string][] = [['focus', '집중 25'], ['short', '짧은 휴식 5'], ['long', '긴 휴식 15']];
@@ -26,7 +22,20 @@ export default function FocusScreen() {
 
   const [timer, setTimer] = useState<TimerState>(() => initial(2));
   const [now, setNow] = useState(() => Date.now());
-  const [scene, setScene] = useState<(typeof SCENES)[number]['id']>('rain');
+  const [scene, setScene] = useState<SceneId>('rain');
+  const [wind, setWind] = useState(0.3);
+  const [portrait, setPortrait] = useState(false);
+  const [videoOk, setVideoOk] = useState(true);
+  const [reduced, setReduced] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia('(orientation: portrait) and (max-width: 700px)');
+    const rm = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const upd = () => { setPortrait(mq.matches); setReduced(rm.matches); };
+    upd();
+    mq.addEventListener('change', upd);
+    rm.addEventListener('change', upd);
+    return () => { mq.removeEventListener('change', upd); rm.removeEventListener('change', upd); };
+  }, []);
   const [ui, setUi] = useState(true);
   const [askDone, setAskDone] = useState(false);
   const [audioOn, setAudioOn] = useState(false);
@@ -86,7 +95,24 @@ export default function FocusScreen() {
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'var(--bg)', overflow: 'hidden' }}>
-      <img src={s.src} alt={s.alt} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', filter: isFocus ? 'none' : 'brightness(0.8) saturate(0.9)' }} />
+      {videoOk && !reduced ? (
+        <video
+          key={`${s.id}-${portrait}`}
+          src={portrait ? s.videoPortrait : s.video}
+          poster={portrait ? s.posterPortrait : s.poster}
+          autoPlay
+          muted
+          loop
+          playsInline
+          preload="auto"
+          aria-label={s.alt}
+          onError={() => setVideoOk(false)}
+          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', filter: isFocus ? 'none' : 'brightness(0.8) saturate(0.9)' }}
+        />
+      ) : (
+        <img src={portrait ? s.posterPortrait : s.poster} alt={s.alt} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', filter: isFocus ? 'none' : 'brightness(0.8) saturate(0.9)' }} />
+      )}
+      <AmbientLayer scene={s.id} onWind={setWind} />
       <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 320, background: 'linear-gradient(to bottom, rgba(14,17,27,0), rgba(14,17,27,0.78))' }} />
       <div style={{ position: 'absolute', left: 0, top: 0, height: 3, width: `${((total - left) / total) * 100}%`, background: accent }} />
 
@@ -96,6 +122,10 @@ export default function FocusScreen() {
             <Link href="/" className="pixel" style={{ color: 'var(--amber)', fontSize: 16, textDecoration: 'none' }}>SIDETOWN</Link>
             <span className="muted" style={{ fontSize: 13 }}>집중 모드</span>
             <div style={{ flex: 1 }} />
+            <span className="hud-card" aria-live="off" style={{ padding: '5px 10px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M3 8h11a3 3 0 1 0-3-3M3 12h15a3 3 0 1 1-3 3M3 16h8" /></svg>
+              {s.label} · {windLabel(wind)}
+            </span>
             <span className="hud-card" style={{ padding: '5px 10px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
               <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--coral)' }} />지우도 집중 중
             </span>
@@ -166,7 +196,7 @@ export default function FocusScreen() {
           <div className="hud-card" style={{ position: 'absolute', left: '50%', bottom: 20, transform: 'translateX(-50%)', display: 'flex', gap: 10, padding: 10 }} aria-label="장면">
             {SCENES.map((x) => (
               <button key={x.id} onClick={() => setScene(x.id)} aria-pressed={x.id === scene} style={{ width: 96, padding: 0, border: `2px solid ${x.id === scene ? 'var(--amber)' : 'transparent'}`, borderRadius: 8, overflow: 'hidden', background: 'var(--panel)', display: 'flex', flexDirection: 'column' }}>
-                <img src={x.src} alt="" style={{ width: '100%', height: 52, objectFit: 'cover' }} />
+                <img src={x.poster} alt="" style={{ width: '100%', height: 52, objectFit: 'cover' }} />
                 <span style={{ fontSize: 11, padding: '4px 0', color: x.id === scene ? 'var(--amber)' : 'var(--muted)' }}>{x.label}</span>
               </button>
             ))}

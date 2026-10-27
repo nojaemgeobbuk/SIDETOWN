@@ -12,6 +12,8 @@ import {
 } from '@/lib/schedule';
 import type { Health, Project } from '@/lib/types';
 import { useApp } from '@/store/useApp';
+import { friendName, relTime } from '@/lib/social';
+import { STAGE_NAMES } from '@/lib/templates';
 import { IconClose, IconFlag, IconPlay } from './icons';
 import Voyage from './Voyage';
 
@@ -40,6 +42,7 @@ export default function ProjectPanel({ project }: { project: Project | null }) {
 
 function PanelBody({ project: p, onClose }: { project: Project; onClose: () => void }) {
   const today = useApp((s) => s.today);
+  const cheers = useApp((s) => s.messages).filter((m) => m.projectId === p.id);
   const { toggleQuest, startWork, completeMilestone, postpone, togglePause } = useApp.getState();
   const [tab, setTab] = useState<'todo' | 'plan'>('todo');
   const [evidence, setEvidence] = useState('');
@@ -66,7 +69,7 @@ function PanelBody({ project: p, onClose }: { project: Project; onClose: () => v
       <div className="panel-head">
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span className="chip" style={{ color: hColor, borderColor: hColor }}>{hLabel}</span>
-          <span className="muted" style={{ fontSize: 12 }}>{KIND[p.building]} · {stage}단계</span>
+          <span className="muted" style={{ fontSize: 12 }}>{KIND[p.building]} · {stage}단계 {STAGE_NAMES[stage]}</span>
           <div style={{ flex: 1 }} />
           <button className="icon-btn" style={{ width: 36, height: 36 }} aria-label="패널 닫기" onClick={onClose}><IconClose width={18} height={18} /></button>
         </div>
@@ -135,6 +138,17 @@ function PanelBody({ project: p, onClose }: { project: Project; onClose: () => v
               </label>
             ))}
             {msQuests.length === 0 && <span className="muted" style={{ fontSize: 13 }}>이 중간 목표에 아직 퀘스트가 없어요.</span>}
+            {cheers.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6 }}>
+                <span style={{ fontSize: 13, fontWeight: 600 }}>친구 응원</span>
+                {cheers.map((m) => (
+                  <button key={m.id} className="card" onClick={() => useApp.getState().openView({ kind: 'inbox', friendId: m.from })} style={{ textAlign: 'left', padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 3 }}>
+                    <span style={{ fontSize: 12 }}><b>{friendName(m.from)}</b> <span className="muted">· {relTime(m.at)} · 답장하기</span></span>
+                    <span style={{ fontSize: 13, lineHeight: 1.5 }}>{m.text}</span>
+                  </button>
+                ))}
+              </div>
+            )}
             {canCompleteMs && active && (
               <div className="card" style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <span style={{ fontSize: 13, fontWeight: 600 }}>‘{active.title}’를 완료할 수 있어요</span>

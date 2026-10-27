@@ -84,8 +84,19 @@ export function groundAt(x: number, y: number): Ground {
   return 'grass';
 }
 
+/** 새 프로젝트가 들어선 빈 부지는 막힌 칸이 된다 */
+const occupiedEmpty = new Set<string>();
+export function setOccupiedPlots(ids: string[]) {
+  occupiedEmpty.clear();
+  for (const id of ids) if (EMPTY_PLOTS.some((p) => p.id === id)) occupiedEmpty.add(id);
+}
+export function isPlotFree(id: string) {
+  return EMPTY_PLOTS.some((p) => p.id === id) && !occupiedEmpty.has(id);
+}
+
 function blockedByObject(x: number, y: number): boolean {
   if ([...PROJECT_PLOTS, ...STATIC_BUILDINGS.map((s) => s.plot)].some((p) => inRect(x, y, p))) return true;
+  if (EMPTY_PLOTS.some((p) => occupiedEmpty.has(p.id) && inRect(x, y, p))) return true;
   return PROPS.some((p) => inRect(x, y, { x: p.x, y: p.y, w: p.w ?? 1, h: p.h ?? 1 }));
 }
 

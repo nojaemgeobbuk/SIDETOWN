@@ -17,10 +17,12 @@ import {
   EMPTY_PLOTS,
   groundAt,
   isWalkable,
+  isPlotFree,
   MAP_H,
   MAP_W,
   plotById,
   PROPS,
+  setOccupiedPlots,
   STATIC_BUILDINGS,
   type Plot,
 } from './map';
@@ -37,6 +39,7 @@ export interface BuildingVM {
 }
 
 export interface FriendVM {
+  id: string;
   name: string;
   status: 'focus' | 'online';
   projectPlotId?: string;
@@ -46,6 +49,7 @@ export interface TownCallbacks {
   onSelectProject: (projectId: string) => void;
   onSelectStatic: (id: string, label: string) => void;
   onEmptyPlot: (plotId: string) => void;
+  onSelectFriend: (friendId: string) => void;
   onBackgroundTap: () => void;
 }
 
@@ -109,6 +113,9 @@ export class TownRenderer {
   private path: Cell[] = [];
   private marker!: Graphics;
   private friendNodes: Container[] = [];
+  private emptyPlotNodes = new Map<string, Container>();
+  private walkers: { node: Container; sprite: Sprite; label: Container; cell: Cell; pos: { x: number; y: number }; path: Cell[]; facing: Facing; wait: number }[] = [];
+  private bursts: { g: Graphics; beam: Graphics; cx: number; baseY: number; parts: { x: number; y: number; vx: number; vy: number; c: number; s: number }[]; life: number; text?: Container }[] = [];
   private camTarget: { x: number; y: number; scale: number } | null = null;
   private dragging = false;
   private down: { x: number; y: number; wx: number; wy: number } | null = null;
@@ -246,6 +253,7 @@ export class TownRenderer {
 
   private drawEmptyPlots() {
     for (const p of EMPTY_PLOTS) {
+      const holder = new Container();
       const g = new Graphics();
       const pts = [isoToScreen(p.x, p.y), isoToScreen(p.x + p.w, p.y), isoToScreen(p.x + p.w, p.y + p.h), isoToScreen(p.x, p.y + p.h)];
       this.diamond(g, p.x, p.y, p.w, p.h).fill({ color: 0x000000, alpha: 0.12 });
@@ -275,7 +283,9 @@ export class TownRenderer {
         this.walkTo(p.entrance);
         this.cb.onEmptyPlot(p.id);
       });
-      this.ground.addChild(g, plus);
+      holder.addChild(g, plus);
+      this.ground.addChild(holder);
+      this.emptyPlotNodes.set(p.id, holder);
     }
   }
 
@@ -357,6 +367,8 @@ export class TownRenderer {
 
   setBuildings(vms: BuildingVM[]) {
     if (!this.app.renderer) return;
+    setOccupiedPlots(vms.map((v) => v.plotId));
+    for (const [id, node] of this.emptyPlotNodes) node.visible = isPlotFree(id);
     for (const vm of vms) {
       const plot = plotById(vm.plotId);
       if (!plot) continue;
@@ -395,11 +407,86 @@ export class TownRenderer {
         node.sprite.texture = tex;
         if (prev.stage !== vm.stage || prev.condition !== vm.condition) node.pop = 0;
       }
+      const grew = vm.stage > prev.stage;
+      const restored = prev.condition !== 'normal' && vm.condition === 'normal';
       this.placeSprite(node.sprite, plot, 1.02);
       node.root.zIndex = node.sprite.zIndex;
       node.label.position.set(node.sprite.x, node.sprite.y - node.sprite.height + 4);
       this.applyCondition(node, needsOverlay);
+      if (grew || restored) this.celebrate(node, grew ? `${['착공', '첫 방', '확장', '랜드마크'][vm.stage]}!` : '불이 다시 켜졌어요', grew ? vm.stage : 1);
     }
+  }
+
+  /** 성장·복구 연출: 빛기둥 + 불꽃 입자 + 떠오르는 글자 (기획서 11절) */
+  private celebrate(node: BuildingNode, text: string, power: number) {
+    if (this.reduced) return;
+    const cx = node.sprite.x;
+    const top = node.sprite.y - node.sprite.height;
+    const g = new Graphics();
+    g.zIndex = 9999;
+    const parts = Array.from({ length: 26 + power * 14 }, () => {
+      const a = -Math.PI / 2 + (Math.random() - 0.5) * 2.2;
+      const sp = 0.12 + Math.random() * 0.22;
+      return { x: cx + (Math.random() - 0.5) * 50, y: top + node.sprite.height * 0.45, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 0.1, c: [COLORS.amber, 0xffe0a0, COLORS.coral, 0x9cc4ee][Math.floor(Math.random() * 4)], s: 3 + Math.random() * 3 };
+    });
+    const beam = new Graphics();
+    beam.blendMode = 'add';
+    beam.zIndex = 9998;
+    this.objects.addChild(beam, g);
+    const lbl = this.makeLabel(text, true);
+    lbl.c.position.set(cx, top - 20);
+    this.labels.addChild(lbl.c);
+    this.bursts.push({ g, beam, cx, baseY: node.sprite.y, parts, life: 0, text: lbl.c });
+  }
+
+  private tickBursts(dt: number) {
+    for (const b of this.bursts) {
+      b.life += dt;
+      const t = b.life / 1800;
+      b.g.clear();
+      b.beam.clear();
+      const beamA = Math.max(0, 1 - t * 1.4);
+      if (beamA > 0) {
+        // 바닥에서 솟는 빛기둥: 가운데가 밝은 세 겹
+        for (const [w, a] of [[70, 0.08], [40, 0.14], [16, 0.22]] as const) {
+          b.beam.rect(b.cx - w / 2, b.baseY - 420, w, 420).fill({ color: COLORS.amber, alpha: a * beamA });
+        }
+        b.beam.ellipse(b.cx, b.baseY - 6, 90 * (0.6 + t), 34 * (0.6 + t)).fill({ color: COLORS.amber, alpha: 0.25 * beamA });
+      }
+      for (const p of b.parts) {
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        p.vy += 0.00035 * dt;
+        b.g.rect(p.x, p.y, p.s, p.s).fill({ color: p.c, alpha: Math.max(0, 1 - t) });
+      }
+      if (b.text) {
+        b.text.y -= dt * 0.02;
+        b.text.alpha = Math.max(0, 1 - Math.max(0, t - 0.5) * 2);
+      }
+    }
+    const done = this.bursts.filter((b) => b.life > 1800);
+    for (const b of done) {
+      b.g.destroy();
+      b.beam.destroy();
+      b.text?.destroy({ children: true });
+    }
+    this.bursts = this.bursts.filter((b) => b.life <= 1800);
+  }
+
+  focusStatic(kind: 'cafe' | 'home') {
+    const s = STATIC_BUILDINGS.find((x) => x.kind === kind);
+    if (!s) return;
+    this.walkTo(s.plot.entrance);
+    const c = isoToScreen(s.plot.x + s.plot.w / 2, s.plot.y + s.plot.h / 2);
+    this.focusWorldPoint(c.x, c.y - 50);
+  }
+
+  focusPlot(plotId: string) {
+    const p = plotById(plotId);
+    if (!p) return;
+    this.walkTo(p.entrance);
+    const c = isoToScreen(p.x + p.w / 2, p.y + p.h / 2);
+    this.focusWorldPoint(c.x, c.y - 30);
   }
 
   private applyCondition(node: BuildingNode, needsOverlay: boolean) {
@@ -463,6 +550,7 @@ export class TownRenderer {
   setFriends(friends: FriendVM[]) {
     this.friendNodes.forEach((n) => n.destroy({ children: true }));
     this.friendNodes = [];
+    this.walkers = [];
     friends.forEach((f, i) => {
       const plot = f.projectPlotId ? plotById(f.projectPlotId) : undefined;
       const cell = plot ? { x: plot.entrance.x, y: plot.entrance.y + 1 } : { x: 12 + i, y: 15 };
@@ -472,16 +560,75 @@ export class TownRenderer {
       const sp = new Sprite(this.tex['char-back-left']);
       sp.anchor.set(0.5, 0.96);
       sp.scale.set(46 / sp.texture.height);
-      sp.tint = 0xffd9c8;
+      sp.tint = i % 2 ? 0xc8dcff : 0xffd9c8;
       c.addChild(sh, sp);
       c.position.set(p.x, p.y);
       c.zIndex = cell.x + cell.y + 1.5;
+      c.eventMode = 'static';
+      c.cursor = 'pointer';
+      c.hitArea = new Rectangle(-16, -50, 32, 56);
+      c.on('pointertap', (e: FederatedPointerEvent) => {
+        if (this.dragging) return;
+        this.consumed = true;
+        e.stopPropagation();
+        this.cb.onSelectFriend(f.id);
+      });
       this.objects.addChild(c);
-      const lbl = this.makeLabel(`${f.name} · ${f.status === 'focus' ? '집중 중' : '접속 중'}`, false, f.status === 'focus' ? COLORS.coral : 0x6cc3a0);
+      const lbl = this.makeLabel(`${f.name} · ${f.status === 'focus' ? '집중 중' : '산책 중'}`, false, f.status === 'focus' ? COLORS.coral : 0x6cc3a0);
       lbl.c.position.set(p.x, p.y - 52);
+      lbl.c.eventMode = 'static';
+      lbl.c.cursor = 'pointer';
+      lbl.c.on('pointertap', (e: FederatedPointerEvent) => {
+        this.consumed = true;
+        e.stopPropagation();
+        this.cb.onSelectFriend(f.id);
+      });
       this.labels.addChild(lbl.c);
       this.friendNodes.push(c, lbl.c);
+      // 접속 중(집중 아님)인 친구는 광장·카페 사이를 천천히 돌아다닌다
+      if (f.status === 'online') this.walkers.push({ node: c, sprite: sp, label: lbl.c, cell, pos: { ...p }, path: [], facing: 'back-left', wait: 1500 + i * 700 });
     });
+  }
+
+  private static WANDER: Cell[] = [
+    { x: 10, y: 9 }, { x: 13, y: 9 }, { x: 15, y: 12 }, { x: 13, y: 14 }, { x: 10, y: 13 }, { x: 9, y: 11 }, { x: 14, y: 17 }, { x: 8, y: 7 },
+  ];
+
+  private tickWalkers(dt: number) {
+    for (const w of this.walkers) {
+      if (!w.path.length) {
+        w.wait -= dt;
+        if (w.wait > 0) continue;
+        const goal = TownRenderer.WANDER[Math.floor(Math.random() * TownRenderer.WANDER.length)];
+        const path = findPath(w.cell, goal, isWalkable, MAP_W, MAP_H);
+        if (path) w.path = path.slice(1);
+        w.wait = 2500 + Math.random() * 4000; // 도착하면 잠시 머문다(커피·구경)
+        continue;
+      }
+      const next = w.path[0];
+      const target = cellCenter(next.x, next.y);
+      const dx = target.x - w.pos.x;
+      const dy = target.y - w.pos.y;
+      const dist = Math.hypot(dx, dy);
+      const speed = 0.06 * dt;
+      const f = facingFor(next.x - w.cell.x, next.y - w.cell.y, w.facing);
+      if (f !== w.facing) {
+        w.facing = f;
+        w.sprite.texture = this.tex[`char-${f}`];
+      }
+      if (dist <= speed) {
+        w.pos = target;
+        w.cell = next;
+        w.path.shift();
+      } else {
+        w.pos = { x: w.pos.x + (dx / dist) * speed, y: w.pos.y + (dy / dist) * speed };
+      }
+      const bob = this.reduced ? 0 : Math.abs(Math.sin(this.time / 140)) * 2;
+      w.node.position.set(w.pos.x, w.pos.y);
+      w.sprite.y = -bob;
+      w.node.zIndex = w.cell.x + w.cell.y + 1.5;
+      w.label.position.set(w.pos.x, w.pos.y - 52);
+    }
   }
 
   setPanelOffset(px: number) {
@@ -643,6 +790,9 @@ export class TownRenderer {
     }
     const bob = this.reduced ? 0 : moving ? Math.abs(Math.sin(this.time / 110)) * 3 : Math.sin(this.time / 700) * 0.6;
     this.syncCharacter(bob);
+
+    if (!this.reduced) this.tickWalkers(dt);
+    this.tickBursts(dt);
 
     // 이름표는 확대·축소와 관계없이 읽을 수 있는 크기로 유지
     const k = Math.min(2.2, Math.max(0.85, 0.95 / this.world.scale.x));

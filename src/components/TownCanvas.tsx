@@ -3,6 +3,7 @@
 import { useEffect, useRef } from 'react';
 import { buildingStage } from '@/lib/schedule';
 import { useApp } from '@/store/useApp';
+import { FRIENDS } from '@/lib/social';
 import type { BuildingVM, TownRenderer } from '@/town/TownRenderer';
 
 export default function TownCanvas({ panelOpen }: { panelOpen: boolean }) {
@@ -11,6 +12,7 @@ export default function TownCanvas({ panelOpen }: { panelOpen: boolean }) {
   const ready = useRef(false);
   const projects = useApp((s) => s.projects);
   const selectedId = useApp((s) => s.selectedId);
+  const view = useApp((s) => s.view);
 
   // 생성·해제
   useEffect(() => {
@@ -22,9 +24,12 @@ export default function TownCanvas({ panelOpen }: { panelOpen: boolean }) {
         const { TownRenderer } = await import('@/town/TownRenderer');
         const r = new TownRenderer(el, {
           onSelectProject: (id) => useApp.getState().select(id),
-          onSelectStatic: (_id, label) => useApp.getState().notify(`${label} · 공용 공간은 단계 2(공동 마을)에서 열려요`),
-          onEmptyPlot: () => useApp.getState().notify('빈 부지 · 새 프로젝트 만들기는 단계 1에서 연결돼요'),
-          onBackgroundTap: () => useApp.getState().select(null),
+          onSelectStatic: (id) => useApp.getState().openView(id === 'home' ? { kind: 'home' } : { kind: 'cafe' }),
+          onEmptyPlot: (plotId) => useApp.getState().openView({ kind: 'new', plotId }),
+          onSelectFriend: (friendId) => useApp.getState().openView({ kind: 'inbox', friendId }),
+          onBackgroundTap: () => {
+            useApp.getState().select(null);
+          },
         });
         renderer.current = r;
         await r.init();
@@ -37,7 +42,7 @@ export default function TownCanvas({ panelOpen }: { panelOpen: boolean }) {
         const sel = useApp.getState().selectedId;
         r.setPanelOffset(sel && window.innerWidth >= 1024 ? 384 : 0);
         r.setSelected(sel);
-        r.setFriends([{ name: '지우', status: 'focus', projectPlotId: 'plot-c' }, { name: '민', status: 'online' }]);
+        r.setFriends(FRIENDS.filter((f) => f.status !== 'offline').map((f) => ({ id: f.id, name: f.name, status: f.status === 'focus' ? 'focus' : 'online', projectPlotId: f.plotId })));
       } catch (err) {
         console.error(err);
         // 기획서 6.4: WebGL 불가 → 목록 화면으로 전환
@@ -71,7 +76,9 @@ export default function TownCanvas({ panelOpen }: { panelOpen: boolean }) {
     r.setBuildings(vms);
   };
 
-  useEffect(sync, [projects]);
+  useEffect(() => {
+    sync();
+  }, [projects]);
 
   useEffect(() => {
     const r = renderer.current;
@@ -79,7 +86,9 @@ export default function TownCanvas({ panelOpen }: { panelOpen: boolean }) {
     const desktop = window.innerWidth >= 1024;
     r.setPanelOffset(panelOpen && desktop ? 384 : 0);
     r.setSelected(selectedId);
-  }, [selectedId, panelOpen]);
+    if (view?.kind === 'cafe' || view?.kind === 'home') r.focusStatic(view.kind);
+    if (view?.kind === 'new') r.focusPlot(view.plotId);
+  }, [selectedId, panelOpen, view]);
 
   return (
     <>

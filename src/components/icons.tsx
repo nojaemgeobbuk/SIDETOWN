@@ -14,3 +14,5 @@ export const IconPause = (p: SVGProps<SVGSVGElement>) => (<svg {...base({ width:
 export const IconSkip = (p: SVGProps<SVGSVGElement>) => (<svg {...base({ width: 16, height: 16, fill: 'currentColor', stroke: 'none', ...p })}><path d="M5 4l10 8-10 8z" /><rect x="16" y="4" width="3" height="16" /></svg>);
 export const IconExpand = (p: SVGProps<SVGSVGElement>) => (<svg {...base({ width: 16, height: 16, strokeWidth: 2, ...p })}><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" /></svg>);
 export const IconSpark = (p: SVGProps<SVGSVGElement>) => (<svg {...base({ width: 16, height: 16, strokeWidth: 2, ...p })}><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z" /></svg>);
+export const IconMail = (p: SVGProps<SVGSVGElement>) => (<svg {...base({ width: 18, height: 18, ...p })}><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M3 7l9 6 9-6" /></svg>);
+export const IconCup = (p: SVGProps<SVGSVGElement>) => (<svg {...base(p)}><path d="M4 9h13v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5z" /><path d="M17 11h1.5a2.5 2.5 0 0 1 0 5H17M8 3v3M12 3v3" /></svg>);
