@@ -45,23 +45,36 @@ export const sampleMessages: Message[] = [
   { id: 'b2', from: 'jiwoo', to: 'board', text: '시험 4주 남았다… 연구소 다시 불 켜보는 중', at: '2026-10-26T09:12:00+09:00', read: true },
 ];
 
-export function friendName(id: string): string {
-  if (id === ME) return '나';
-  return FRIENDS.find((f) => f.id === id)?.name ?? id;
+export function friendName(id: string, friends: Friend[] = FRIENDS, me = ME): string {
+  if (id === me) return '나';
+  return friends.find((f) => f.id === id)?.name ?? '이웃';
 }
 
 /** 나와 친구 사이의 대화(시간순) */
-export function thread(messages: Message[], friendId: string): Message[] {
+export function thread(messages: Message[], friendId: string, me = ME): Message[] {
   return messages
-    .filter((m) => (m.from === ME && m.to === friendId) || (m.from === friendId && m.to === ME))
+    .filter((m) => (m.from === me && m.to === friendId) || (m.from === friendId && m.to === me))
     .sort((a, b) => a.at.localeCompare(b.at));
 }
 
-export function unreadCount(messages: Message[], friendId?: string): number {
-  return messages.filter((m) => m.to === ME && !m.read && (!friendId || m.from === friendId)).length;
+export function unreadCount(messages: Message[], friendId?: string, me = ME): number {
+  return messages.filter((m) => m.to === me && !m.read && (!friendId || m.from === friendId)).length;
 }
 
-export function relTime(at: string, now = new Date('2026-10-26T13:00:00+09:00')): string {
+const PALETTE: [string, string][] = [
+  ['#3a2a26', '#f2c8b8'], ['#23314a', '#bfd0ee'], ['#2c3328', '#cfe0b8'], ['#3a3020', '#f0d79a'],
+  ['#2e2640', '#d6c6f0'], ['#203634', '#b6e3dc'], ['#3d2632', '#f0bfd2'], ['#2b2f36', '#d4d9e2'],
+];
+
+/** 서버 사용자 → 친구 표시 정보. 색은 id로 고정 */
+export function toFriend(id: string, nickname: string, status: Friend['status'] = 'offline'): Friend {
+  let h = 0;
+  for (const c of id) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  const [bg, fg] = PALETTE[h % PALETTE.length];
+  return { id, name: nickname, initial: [...nickname][0] ?? '?', bg, fg, status };
+}
+
+export function relTime(at: string, now = new Date()): string {
   const diff = Math.round((now.getTime() - new Date(at).getTime()) / 60000);
   if (diff < 1) return '방금';
   if (diff < 60) return `${diff}분 전`;

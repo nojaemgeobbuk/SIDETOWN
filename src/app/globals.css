@@ -132,3 +132,14 @@ textarea.input, input.input { width: 100%; background: var(--bg); border: 1px so
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }
+
+/* 로그인·마을 만들기·초대 */
+.auth { position: fixed; inset: 0; overflow-y: auto; display: flex; align-items: center; justify-content: center; padding: 24px 16px; }
+.auth-bg { position: fixed; inset: 0; background: url('/assets/scenes/town-night.jpg') center / cover no-repeat; filter: brightness(0.55) saturate(0.9); }
+.auth-bg::after { content: ''; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(14,17,27,0.2) 0%, rgba(14,17,27,0.85) 100%); }
+.auth-card { position: relative; word-break: keep-all; width: 100%; max-width: 400px; display: flex; flex-direction: column; gap: 22px; padding: 28px 24px; border-radius: 12px; background: rgba(18, 23, 37, 0.92); border: 1px solid var(--border); box-shadow: 0 24px 60px rgba(0,0,0,0.45); }
+.auth-card .brand { font-family: var(--pixel); color: var(--amber); font-size: 15px; letter-spacing: 1px; }
+
+/* 데모 모드 안내 */
+.demo-banner { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); z-index: 5; font-size: 12px; padding: 6px 12px; border-radius: 999px; background: rgba(18,23,37,0.9); border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
+@media (max-width: 640px) { .demo-banner { display: none; } }

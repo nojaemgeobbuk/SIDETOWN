@@ -31,17 +31,17 @@ export interface Prop {
   h?: number;
 }
 
-export const PROJECT_PLOTS: Plot[] = [
+/** 프로젝트 부지. 비어 있으면 공사 표지가 보이고 누르면 착공할 수 있다.
+ *  (단계 0에서는 a~c가 예시 프로젝트 고정 자리였지만, 실제 마을은 처음에 모두 비어 있다) */
+export const EMPTY_PLOTS: Plot[] = [
   { id: 'plot-a', x: 3, y: 2, w: 4, h: 4, entrance: { x: 7, y: 4 } },
   { id: 'plot-b', x: 3, y: 10, w: 4, h: 4, entrance: { x: 7, y: 12 } },
   { id: 'plot-c', x: 12, y: 2, w: 4, h: 4, entrance: { x: 16, y: 4 } },
-];
-
-/** 빈 프로젝트 부지(새 프로젝트를 놓을 자리) */
-export const EMPTY_PLOTS: Plot[] = [
   { id: 'plot-d', x: 3, y: 17, w: 4, h: 4, entrance: { x: 7, y: 19 } },
   { id: 'plot-e', x: 18, y: 2, w: 4, h: 4, entrance: { x: 17, y: 6 } },
 ];
+/** 고정 프로젝트 부지(지금은 없음) */
+export const PROJECT_PLOTS: Plot[] = [];
 
 export const STATIC_BUILDINGS: StaticBuilding[] = [
   { id: 'cafe', kind: 'cafe', label: '공용 카페', plot: { id: 'cafe', x: 16, y: 10, w: 4, h: 4, entrance: { x: 15, y: 12 } } },

@@ -3,7 +3,7 @@ import './globals.css';
 
 export const metadata: Metadata = {
   title: 'SideTown — 사이드 프로젝트 마을',
-  description: '현실의 프로젝트를 퀘스트로 나누고, 완료할 때마다 마을이 자라는 웹앱 (단계 0 검증 빌드)',
+  description: '현실의 프로젝트를 퀘스트로 나누고, 완료할 때마다 마을이 자라는 웹앱',
 };
 
 export const viewport: Viewport = {

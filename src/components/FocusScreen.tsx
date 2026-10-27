@@ -8,12 +8,14 @@ import { advance, format, initial, LENGTHS, pause, remaining, setMode, start, ty
 import { useApp } from '@/store/useApp';
 import { SCENES, windLabel, type SceneId } from '@/focus/scenes';
 import AmbientLayer from './AmbientLayer';
+import LiveSync from './LiveSync';
+import type { Mode as AppMode, Presence } from '@/store/useApp';
 import { IconPause, IconPlay, IconSkip } from './icons';
 
 const LAYERS: [Layer, string][] = [['bgm', 'BGM'], ['rain', '빗소리'], ['fire', '모닥불'], ['cafe', '카페 소음'], ['wave', '물결']];
 const MODES: [Mode, string][] = [['focus', '집중 25'], ['short', '짧은 휴식 5'], ['long', '긴 휴식 15']];
 
-export default function FocusScreen() {
+export default function FocusScreen({ appMode = 'demo', meId }: { appMode?: AppMode; meId?: string }) {
   const params = useSearchParams();
   const projects = useApp((s) => s.projects);
   const toggleQuest = useApp((s) => s.toggleQuest);
@@ -93,8 +95,15 @@ export default function FocusScreen() {
   const accent = isFocus ? 'var(--amber)' : 'var(--mint)';
   const s = SCENES.find((x) => x.id === scene)!;
 
+  // 친구에게 보이는 상태: 집중 구간이 돌아가는 동안만 '집중 중'
+  const focusing = timer.mode === 'focus' && timer.endsAt !== null;
+  const presence: Presence = focusing
+    ? { status: 'focus', plotId: project?.plotId, since: timer.endsAt! - LENGTHS.focus }
+    : { status: 'online' };
+
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'var(--bg)', overflow: 'hidden' }}>
+      <LiveSync mode={appMode} meId={meId} presence={presence} />
       {videoOk && !reduced ? (
         <video
           key={`${s.id}-${portrait}`}

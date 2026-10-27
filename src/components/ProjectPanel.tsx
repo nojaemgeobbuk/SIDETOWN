@@ -42,7 +42,9 @@ export default function ProjectPanel({ project }: { project: Project | null }) {
 
 function PanelBody({ project: p, onClose }: { project: Project; onClose: () => void }) {
   const today = useApp((s) => s.today);
-  const cheers = useApp((s) => s.messages).filter((m) => m.projectId === p.id);
+  const meId = useApp((s) => s.meId);
+  const friends = useApp((s) => s.friends);
+  const cheers = useApp((s) => s.messages).filter((m) => m.projectId === p.id && m.from !== meId);
   const { toggleQuest, startWork, completeMilestone, postpone, togglePause } = useApp.getState();
   const [tab, setTab] = useState<'todo' | 'plan'>('todo');
   const [evidence, setEvidence] = useState('');
@@ -143,7 +145,7 @@ function PanelBody({ project: p, onClose }: { project: Project; onClose: () => v
                 <span style={{ fontSize: 13, fontWeight: 600 }}>친구 응원</span>
                 {cheers.map((m) => (
                   <button key={m.id} className="card" onClick={() => useApp.getState().openView({ kind: 'inbox', friendId: m.from })} style={{ textAlign: 'left', padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 3 }}>
-                    <span style={{ fontSize: 12 }}><b>{friendName(m.from)}</b> <span className="muted">· {relTime(m.at)} · 답장하기</span></span>
+                    <span style={{ fontSize: 12 }}><b>{friendName(m.from, friends, meId)}</b> <span className="muted">· {relTime(m.at)} · 답장하기</span></span>
                     <span style={{ fontSize: 13, lineHeight: 1.5 }}>{m.text}</span>
                   </button>
                 ))}

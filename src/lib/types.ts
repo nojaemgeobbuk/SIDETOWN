@@ -44,6 +44,10 @@ export interface Project {
   condition: Condition;
   milestones: Milestone[];
   quests: Quest[];
+  /** 서버 모드: 소유자 id, 서버가 계산한 단계 캐시, 일정 버전(동시 수정 확인용) */
+  ownerId?: string;
+  stage?: number;
+  planVersion?: number;
 }
 
 export type RescheduleScope = 'only' | 'cascade' | 'squeeze';

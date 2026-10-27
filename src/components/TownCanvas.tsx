@@ -3,14 +3,16 @@
 import { useEffect, useRef } from 'react';
 import { buildingStage } from '@/lib/schedule';
 import { useApp } from '@/store/useApp';
-import { FRIENDS } from '@/lib/social';
 import type { BuildingVM, TownRenderer } from '@/town/TownRenderer';
 
 export default function TownCanvas({ panelOpen }: { panelOpen: boolean }) {
   const host = useRef<HTMLDivElement>(null);
   const renderer = useRef<TownRenderer | null>(null);
   const ready = useRef(false);
+  const friendsKey = useRef('');
   const projects = useApp((s) => s.projects);
+  const townProjects = useApp((s) => s.townProjects);
+  const friends = useApp((s) => s.friends);
   const selectedId = useApp((s) => s.selectedId);
   const view = useApp((s) => s.view);
 
@@ -42,7 +44,7 @@ export default function TownCanvas({ panelOpen }: { panelOpen: boolean }) {
         const sel = useApp.getState().selectedId;
         r.setPanelOffset(sel && window.innerWidth >= 1024 ? 384 : 0);
         r.setSelected(sel);
-        r.setFriends(FRIENDS.filter((f) => f.status !== 'offline').map((f) => ({ id: f.id, name: f.name, status: f.status === 'focus' ? 'focus' : 'online', projectPlotId: f.plotId })));
+        syncFriends();
       } catch (err) {
         console.error(err);
         // 기획서 6.4: WebGL 불가 → 목록 화면으로 전환
@@ -53,6 +55,7 @@ export default function TownCanvas({ panelOpen }: { panelOpen: boolean }) {
     return () => {
       alive = false;
       ready.current = false;
+      friendsKey.current = '';
       renderer.current?.destroy();
       renderer.current = null;
     };
@@ -63,11 +66,12 @@ export default function TownCanvas({ panelOpen }: { panelOpen: boolean }) {
     const r = renderer.current;
     if (!r || !ready.current) return;
     const s = useApp.getState();
-    const vms: BuildingVM[] = s.projects.map((p) => ({
+    const vms: BuildingVM[] = [...s.projects, ...s.townProjects].map((p) => ({
       projectId: p.id,
       plotId: p.plotId,
       type: p.building,
-      stage: buildingStage(p),
+      // 친구 프로젝트는 중간 목표를 볼 수 없으므로 서버가 계산한 단계 캐시를 쓴다
+      stage: s.townProjects.includes(p) ? (Math.min(3, Math.max(0, p.stage ?? 0)) as BuildingVM["stage"]) : buildingStage(p),
       condition: p.condition,
       title: p.title,
       color: p.color,
@@ -76,9 +80,24 @@ export default function TownCanvas({ panelOpen }: { panelOpen: boolean }) {
     r.setBuildings(vms);
   };
 
+  const syncFriends = () => {
+    const r = renderer.current;
+    if (!r || !ready.current) return;
+    const fs = useApp.getState().friends;
+    // 다시 불러오기마다 캐릭터가 제자리로 돌아가지 않도록, 보이는 내용이 바뀔 때만 다시 그린다
+    const key = fs.map((f) => `${f.id}:${f.status}:${f.plotId ?? ''}:${f.name}`).join('|');
+    if (key === friendsKey.current) return;
+    friendsKey.current = key;
+    r.setFriends(fs.filter((f) => f.status !== 'offline').map((f) => ({ id: f.id, name: f.name, status: f.status === 'focus' ? 'focus' : 'online', projectPlotId: f.plotId })));
+  };
+
   useEffect(() => {
     sync();
-  }, [projects]);
+  }, [projects, townProjects]);
+
+  useEffect(() => {
+    syncFriends();
+  }, [friends]);
 
   useEffect(() => {
     const r = renderer.current;

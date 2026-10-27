@@ -4,18 +4,25 @@ import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { useEffect } from 'react';
 import { actualProgress, buildingStage, expectedProgress, health } from '@/lib/schedule';
-import { useApp } from '@/store/useApp';
-import { FRIENDS, unreadCount } from '@/lib/social';
+import { useApp, type Mode } from '@/store/useApp';
+import { unreadCount } from '@/lib/social';
 import { EMPTY_PLOTS } from '@/town/map';
 import { IconCalendar, IconCup, IconExpand, IconList, IconMail, IconTown, IconUser } from './icons';
+import FriendProjectPanel from './FriendProjectPanel';
+import LiveSync from './LiveSync';
 import PlacePanel from './PlacePanel';
 import ProjectPanel from './ProjectPanel';
 import Voyage from './Voyage';
 
 const TownCanvas = dynamic(() => import('./TownCanvas'), { ssr: false });
 
-export default function TownApp() {
+export default function TownApp({ mode, meId }: { mode: Mode; meId?: string }) {
   const projects = useApp((s) => s.projects);
+  const townProjects = useApp((s) => s.townProjects);
+  const friends = useApp((s) => s.friends);
+  const townName = useApp((s) => s.townName);
+  const me = useApp((s) => s.meId);
+  const booted = useApp((s) => s.booted);
   const selectedId = useApp((s) => s.selectedId);
   const listMode = useApp((s) => s.listMode);
   const xp = useApp((s) => s.xp);
@@ -23,9 +30,10 @@ export default function TownApp() {
   const view = useApp((s) => s.view);
   const messages = useApp((s) => s.messages);
   const { setListMode, select, openView } = useApp.getState();
-  const unread = unreadCount(messages);
-  const online = FRIENDS.filter((f) => f.status !== 'offline').length;
+  const unread = unreadCount(messages, undefined, me);
+  const online = friends.filter((f) => f.status !== 'offline').length;
   const selected = projects.find((p) => p.id === selectedId) ?? null;
+  const friendProject = selected ? null : townProjects.find((p) => p.id === selectedId) ?? null;
   const level = 1 + Math.floor(xp / 100);
   const townDone = projects.reduce((n, p) => n + p.milestones.filter((m) => m.status === 'completed').length, 0);
 
@@ -45,10 +53,11 @@ export default function TownApp() {
 
   return (
     <div className="shell">
+      <LiveSync mode={mode} meId={meId} presence={PRESENCE_ONLINE} />
       <header className="topbar">
         <Link href="/" className="brand">SIDETOWN</Link>
         <span style={{ width: 1, height: 18, background: 'var(--border)' }} className="town" />
-        <span className="town">새벽작업실 마을</span>
+        <span className="town">{townName}</span>
         <div style={{ flex: 1 }} />
         <div className="xp" title={`누적 ${xp} XP`}>
           <img src="/assets/character/front-right.png" alt="" />
@@ -59,7 +68,7 @@ export default function TownApp() {
         <div className="friends">
           <span className="label">접속 {online}</span>
           <span style={{ display: 'flex' }}>
-            {FRIENDS.map((f) => (
+            {friends.map((f) => (
               <button key={f.id} className="avatar" title={`${f.name}에게 쪽지`} aria-label={`${f.name}에게 쪽지 (${f.status === 'focus' ? '집중 중' : f.status === 'online' ? '접속 중' : '오프라인'})`} onClick={() => openView({ kind: 'inbox', friendId: f.id })} style={{ background: f.bg, color: f.fg, padding: 0, opacity: f.status === 'offline' ? 0.55 : 1 }}>
                 {f.initial}
                 {f.status !== 'offline' && <span className="dot" style={{ background: f.status === 'focus' ? 'var(--coral)' : 'var(--mint)' }} />}
@@ -83,7 +92,8 @@ export default function TownApp() {
         </nav>
 
         <main className="stage">
-          {!listMode && <TownCanvas panelOpen={!!selected || !!view} />}
+          {mode === 'demo' && booted && <span className="demo-banner">데모 마을 · 이 브라우저에만 저장돼요</span>}
+          {!listMode && <TownCanvas panelOpen={!!selected || !!friendProject || !!view} />}
           {listMode && <ListView />}
 
           {!listMode && (
@@ -100,7 +110,7 @@ export default function TownApp() {
               className="btn btn-sm"
               style={{ height: 40 }}
               onClick={() => {
-                const used = new Set(projects.map((p) => p.plotId));
+                const used = new Set([...projects, ...townProjects].map((p) => p.plotId));
                 const free = EMPTY_PLOTS.find((pl) => !used.has(pl.id));
                 if (free) openView({ kind: 'new', plotId: free.id });
                 else useApp.getState().notify('빈 부지가 없어요 · 마을 확장 구역은 다음 단계에서 열려요', 'warn');
@@ -112,10 +122,10 @@ export default function TownApp() {
             <Link href="/focus" className="btn btn-sm" style={{ height: 40, textDecoration: 'none', borderColor: 'var(--amber)', color: 'var(--amber)' }}><IconExpand /> 전체 화면 집중</Link>
           </div>
 
-          <DevTools />
+          {mode === 'demo' && <DevTools />}
         </main>
 
-        {view ? <PlacePanel view={view} /> : <ProjectPanel project={selected} />}
+        {view ? <PlacePanel view={view} /> : friendProject ? <FriendProjectPanel project={friendProject} /> : <ProjectPanel project={selected} />}
       </div>
 
       {toast && (
@@ -124,6 +134,8 @@ export default function TownApp() {
     </div>
   );
 }
+
+const PRESENCE_ONLINE = { status: 'online' } as const;
 
 function ListView() {
   const projects = useApp((s) => s.projects);
