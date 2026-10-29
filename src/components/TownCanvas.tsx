@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 import { buildingStage } from '@/lib/schedule';
-import { useApp } from '@/store/useApp';
+import { mapProjects, useApp } from '@/store/useApp';
 import type { BuildingVM, TownRenderer } from '@/town/TownRenderer';
 
 export default function TownCanvas({ panelOpen }: { panelOpen: boolean }) {
@@ -13,6 +13,7 @@ export default function TownCanvas({ panelOpen }: { panelOpen: boolean }) {
   const projects = useApp((s) => s.projects);
   const townProjects = useApp((s) => s.townProjects);
   const friends = useApp((s) => s.friends);
+  const avatar = useApp((s) => s.me.avatar);
   const selectedId = useApp((s) => s.selectedId);
   const view = useApp((s) => s.view);
 
@@ -26,7 +27,7 @@ export default function TownCanvas({ panelOpen }: { panelOpen: boolean }) {
         const { TownRenderer } = await import('@/town/TownRenderer');
         const r = new TownRenderer(el, {
           onSelectProject: (id) => useApp.getState().select(id),
-          onSelectStatic: (id) => useApp.getState().openView(id === 'home' ? { kind: 'home' } : { kind: 'cafe' }),
+          onSelectStatic: (id) => useApp.getState().openView(id === 'home' ? { kind: 'home' } : id === 'hall' ? { kind: 'hall' } : { kind: 'cafe' }),
           onEmptyPlot: (plotId) => useApp.getState().openView({ kind: 'new', plotId }),
           onSelectFriend: (friendId) => useApp.getState().openView({ kind: 'inbox', friendId }),
           onBackgroundTap: () => {
@@ -45,6 +46,7 @@ export default function TownCanvas({ panelOpen }: { panelOpen: boolean }) {
         r.setPanelOffset(sel && window.innerWidth >= 1024 ? 384 : 0);
         r.setSelected(sel);
         syncFriends();
+        void r.setAvatar(useApp.getState().me.avatar);
       } catch (err) {
         console.error(err);
         // 기획서 6.4: WebGL 불가 → 목록 화면으로 전환
@@ -66,7 +68,7 @@ export default function TownCanvas({ panelOpen }: { panelOpen: boolean }) {
     const r = renderer.current;
     if (!r || !ready.current) return;
     const s = useApp.getState();
-    const vms: BuildingVM[] = [...s.projects, ...s.townProjects].map((p) => ({
+    const vms: BuildingVM[] = mapProjects(s).map((p) => ({
       projectId: p.id,
       plotId: p.plotId,
       type: p.building,
@@ -76,6 +78,7 @@ export default function TownCanvas({ panelOpen }: { panelOpen: boolean }) {
       title: p.title,
       color: p.color,
       paused: p.status === 'paused',
+      demolishEndsAt: p.status === 'demolishing' && p.demolishEndsAt ? new Date(p.demolishEndsAt).getTime() : undefined,
     }));
     r.setBuildings(vms);
   };
@@ -85,10 +88,10 @@ export default function TownCanvas({ panelOpen }: { panelOpen: boolean }) {
     if (!r || !ready.current) return;
     const fs = useApp.getState().friends;
     // 다시 불러오기마다 캐릭터가 제자리로 돌아가지 않도록, 보이는 내용이 바뀔 때만 다시 그린다
-    const key = fs.map((f) => `${f.id}:${f.status}:${f.plotId ?? ''}:${f.name}`).join('|');
+    const key = fs.map((f) => `${f.id}:${f.status}:${f.plotId ?? ''}:${f.name}:${JSON.stringify(f.avatar ?? {})}`).join('|');
     if (key === friendsKey.current) return;
     friendsKey.current = key;
-    r.setFriends(fs.filter((f) => f.status !== 'offline').map((f) => ({ id: f.id, name: f.name, status: f.status === 'focus' ? 'focus' : 'online', projectPlotId: f.plotId })));
+    r.setFriends(fs.filter((f) => f.status !== 'offline').map((f) => ({ id: f.id, name: f.name, status: f.status === 'focus' ? 'focus' : 'online', projectPlotId: f.plotId, avatar: f.avatar })));
   };
 
   useEffect(() => {
@@ -100,12 +103,16 @@ export default function TownCanvas({ panelOpen }: { panelOpen: boolean }) {
   }, [friends]);
 
   useEffect(() => {
+    if (ready.current) void renderer.current?.setAvatar(avatar);
+  }, [avatar]);
+
+  useEffect(() => {
     const r = renderer.current;
     if (!r || !ready.current) return;
     const desktop = window.innerWidth >= 1024;
     r.setPanelOffset(panelOpen && desktop ? 384 : 0);
     r.setSelected(selectedId);
-    if (view?.kind === 'cafe' || view?.kind === 'home') r.focusStatic(view.kind);
+    if (view?.kind === 'cafe' || view?.kind === 'home' || view?.kind === 'hall') r.focusStatic(view.kind);
     if (view?.kind === 'new') r.focusPlot(view.plotId);
   }, [selectedId, panelOpen, view]);
 

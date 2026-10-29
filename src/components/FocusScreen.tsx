@@ -17,7 +17,9 @@ const MODES: [Mode, string][] = [['focus', '집중 25'], ['short', '짧은 휴�
 
 export default function FocusScreen({ appMode = 'demo', meId }: { appMode?: AppMode; meId?: string }) {
   const params = useSearchParams();
-  const projects = useApp((s) => s.projects);
+  const allProjects = useApp((s) => s.projects);
+  // 철거 중·철거 끝·명예의 전당 프로젝트는 집중 대상에서 뺀다
+  const projects = allProjects.filter((p) => (p.status === 'active' || p.status === 'paused') && !p.hallAt);
   const toggleQuest = useApp((s) => s.toggleQuest);
   const project = projects.find((p) => p.id === params.get('project')) ?? projects[0];
   const quest = project?.quests.find((q) => q.id === params.get('quest')) ?? project?.quests.find((q) => q.status !== 'done');

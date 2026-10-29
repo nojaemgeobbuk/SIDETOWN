@@ -81,3 +81,66 @@ export const sampleProjects: Project[] = [
     ],
   },
 ];
+
+/** 데모: 같은 마을 친구(지우)의 프로젝트 — 세부 일정까지 공개 */
+export const sampleFriendProjects: Project[] = [
+  {
+    id: 'f-toeic',
+    title: '토익 900점',
+    building: 'lab',
+    color: '#9CC4EE',
+    plotId: 'plot-e',
+    definitionOfDone: '12월 정기시험에서 900점 이상 성적표를 받는다',
+    start: '2026-10-01',
+    target: '2026-12-13',
+    baselineTarget: '2026-12-13',
+    status: 'active',
+    condition: 'normal',
+    ownerId: 'jiwoo',
+    visibility: 'town',
+    stage: 1,
+    milestones: [
+      { id: 'fm1', title: 'LC 파트 3·4 정리', criteria: '모의 LC 450 이상 2회', weight: 1, status: 'completed', start: '2026-10-01', target: '2026-10-25', baselineStart: '2026-10-01', baselineTarget: '2026-10-25', evidence: '모의고사 455·460' },
+      { id: 'fm2', title: 'RC 파트 7 속도', criteria: '75분 안에 100문항', weight: 2, status: 'active', start: '2026-10-26', target: '2026-11-22', baselineStart: '2026-10-26', baselineTarget: '2026-11-22' },
+      { id: 'fm3', title: '실전 모의 5회', criteria: '평균 880 이상', weight: 1, status: 'planned', start: '2026-11-23', target: '2026-12-12', baselineStart: '2026-11-23', baselineTarget: '2026-12-12' },
+    ],
+    quests: [
+      { id: 'fq1', milestoneId: 'fm2', title: '파트 7 단일지문 30문항 타이머', estimatedMinutes: 30, status: 'done', scheduledStart: '2026-10-26', due: '2026-10-27', baselineDue: '2026-10-27' },
+      { id: 'fq2', milestoneId: 'fm2', title: '이중지문 오답 노트', estimatedMinutes: 40, status: 'doing', scheduledStart: '2026-10-29', due: '2026-10-31', baselineDue: '2026-10-31' },
+      { id: 'fq3', milestoneId: 'fm2', title: '어휘 300개 2회독', estimatedMinutes: 25, status: 'todo', scheduledStart: '2026-10-31', due: '2026-11-05', baselineDue: '2026-11-05' },
+    ],
+  },
+];
+
+/** 데모: 두 번째 마을(친구 그룹) */
+export const sampleTown2 = {
+  id: 'demo-weekend',
+  name: '주말 스터디 마을',
+  friends: [{ id: 'harin', name: '하린' }],
+  townProjects: [
+    {
+      id: 'h-portfolio',
+      title: '포트폴리오 사이트',
+      building: 'workshop',
+      color: '#C9A0F0',
+      plotId: 'plot-c',
+      definitionOfDone: '작업물 6개가 올라간 사이트를 공개한다',
+      start: '2026-10-10',
+      target: '2026-12-20',
+      baselineTarget: '2026-12-20',
+      status: 'active',
+      condition: 'normal',
+      ownerId: 'harin',
+      visibility: 'town',
+      stage: 0,
+      milestones: [
+        { id: 'hm1', title: '작업물 고르기', criteria: '6개 선정·설명 한 줄', weight: 1, status: 'active', start: '2026-10-10', target: '2026-11-05', baselineStart: '2026-10-10', baselineTarget: '2026-11-05' },
+        { id: 'hm2', title: '디자인·구현', criteria: '모바일까지 동작', weight: 2, status: 'planned', start: '2026-11-06', target: '2026-12-10', baselineStart: '2026-11-06', baselineTarget: '2026-12-10' },
+        { id: 'hm3', title: '공개', criteria: '도메인 연결', weight: 1, status: 'planned', start: '2026-12-11', target: '2026-12-20', baselineStart: '2026-12-11', baselineTarget: '2026-12-20' },
+      ],
+      quests: [
+        { id: 'hq1', milestoneId: 'hm1', title: '지난 작업 폴더 훑기', estimatedMinutes: 30, status: 'todo', scheduledStart: '2026-10-31', due: '2026-11-01', baselineDue: '2026-11-01' },
+      ],
+    },
+  ] as Project[],
+};

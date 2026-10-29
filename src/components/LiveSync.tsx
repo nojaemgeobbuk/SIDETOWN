@@ -18,6 +18,9 @@ export default function LiveSync({ mode, meId, presence }: { mode: Mode; meId?: 
 
   useEffect(() => {
     useApp.getState().boot({ mode, meId });
+    // 철거 1시간이 끝났는지 30초마다 확인
+    const t = setInterval(() => useApp.getState().tickClock(), 30_000);
+    return () => clearInterval(t);
   }, [mode, meId]);
 
   useEffect(() => {

@@ -18,7 +18,7 @@ export interface Plot {
 
 export interface StaticBuilding {
   id: string;
-  kind: 'cafe' | 'home';
+  kind: 'cafe' | 'home' | 'hall';
   label: string;
   plot: Plot;
 }
@@ -46,6 +46,7 @@ export const PROJECT_PLOTS: Plot[] = [];
 export const STATIC_BUILDINGS: StaticBuilding[] = [
   { id: 'cafe', kind: 'cafe', label: '공용 카페', plot: { id: 'cafe', x: 16, y: 10, w: 4, h: 4, entrance: { x: 15, y: 12 } } },
   { id: 'home', kind: 'home', label: '내 집', plot: { id: 'home', x: 11, y: 17, w: 3, h: 3, entrance: { x: 14, y: 18 } } },
+  { id: 'hall', kind: 'hall', label: '명예의 전당', plot: { id: 'hall', x: 20, y: 9, w: 3, h: 3, entrance: { x: 21, y: 12 } } },
 ];
 
 export const PROPS: Prop[] = [
@@ -59,7 +60,7 @@ export const PROPS: Prop[] = [
   { kind: 'tree', x: 9, y: 2 },
   { kind: 'tree', x: 1, y: 7 },
   { kind: 'tree', x: 10, y: 5 },
-  { kind: 'tree', x: 21, y: 8 },
+  { kind: 'tree', x: 22, y: 7 },
   { kind: 'tree', x: 1, y: 15 },
   { kind: 'tree', x: 9, y: 19 },
   { kind: 'tree', x: 16, y: 19 },

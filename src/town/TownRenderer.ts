@@ -10,7 +10,9 @@ import {
   Text,
   Texture,
 } from 'pixi.js';
-import type { BuildingType, Condition } from '@/lib/types';
+import type { Avatar, BuildingType, Condition } from '@/lib/types';
+import { avatarCanvas } from '@/lib/avatar-canvas';
+import { avatarKey } from '@/lib/avatar';
 import { findPath, nearestWalkable, type Cell } from './astar';
 import { cellCenter, facingFor, isoToScreen, screenToCell, TILE_H, TILE_W, type Facing } from './iso';
 import {
@@ -36,6 +38,8 @@ export interface BuildingVM {
   title: string;
   color: string;
   paused: boolean;
+  /** 철거가 끝나는 시각(ms). 있으면 철거 현장으로 그린다 */
+  demolishEndsAt?: number;
 }
 
 export interface FriendVM {
@@ -43,6 +47,7 @@ export interface FriendVM {
   name: string;
   status: 'focus' | 'online';
   projectPlotId?: string;
+  avatar?: Avatar;
 }
 
 export interface TownCallbacks {
@@ -58,7 +63,7 @@ const TEXTURE_KEYS = [
   'workshop-s0', 'workshop-s1', 'workshop-s2', 'workshop-s3', 'workshop-decayed', 'workshop-repairing',
   'bookstore-s0', 'bookstore-s1', 'bookstore-s2', 'bookstore-s3',
   'lab-s0', 'lab-s1', 'lab-s2', 'lab-s3',
-  'cafe', 'home', 'tree', 'lamp', 'bench', 'planter',
+  'demolition', 'cafe', 'home', 'hall', 'tree', 'lamp', 'bench', 'planter',
 ] as const;
 const CHAR_KEYS: Facing[] = ['front-left', 'front-right', 'back-left', 'back-right'];
 
@@ -104,6 +109,9 @@ export class TownRenderer {
   private objects = new Container();
   private labels = new Container();
   private tex: Record<string, Texture> = {};
+  /** 내 캐릭터 외형 텍스처(방향별) */
+  private charTex: Partial<Record<Facing, Texture>> = {};
+  private avatarKeyNow = avatarKey({});
   private buildings = new Map<string, BuildingNode>();
   private character!: Sprite;
   private charShadow!: Graphics;
@@ -114,7 +122,7 @@ export class TownRenderer {
   private marker!: Graphics;
   private friendNodes: Container[] = [];
   private emptyPlotNodes = new Map<string, Container>();
-  private walkers: { node: Container; sprite: Sprite; label: Container; cell: Cell; pos: { x: number; y: number }; path: Cell[]; facing: Facing; wait: number }[] = [];
+  private walkers: { node: Container; sprite: Sprite; label: Container; cell: Cell; pos: { x: number; y: number }; path: Cell[]; facing: Facing; wait: number; tex: Partial<Record<Facing, Texture>> }[] = [];
   private bursts: { g: Graphics; beam: Graphics; cx: number; baseY: number; parts: { x: number; y: number; vx: number; vy: number; c: number; s: number }[]; life: number; text?: Container }[] = [];
   private camTarget: { x: number; y: number; scale: number } | null = null;
   private dragging = false;
@@ -302,7 +310,7 @@ export class TownRenderer {
   private drawStatic() {
     for (const s of STATIC_BUILDINGS) {
       const sp = new Sprite(this.tex[s.kind]);
-      this.placeSprite(sp, s.plot, s.kind === 'home' ? 0.95 : 1.02);
+      this.placeSprite(sp, s.plot, s.kind === 'home' ? 0.95 : s.kind === 'hall' ? 1.0 : 1.02);
       sp.eventMode = 'static';
       sp.cursor = 'pointer';
       sp.on('pointertap', (e: FederatedPointerEvent) => {
@@ -359,6 +367,7 @@ export class TownRenderer {
 
   // ───────── 프로젝트 건물 ─────────
   private textureFor(vm: BuildingVM): { tex: Texture; needsOverlay: boolean } {
+    if (vm.demolishEndsAt) return { tex: this.tex['demolition'], needsOverlay: false };
     if (vm.condition !== 'normal' && vm.type === 'workshop') {
       return { tex: this.tex[vm.condition === 'decayed' ? 'workshop-decayed' : 'workshop-repairing'], needsOverlay: false };
     }
@@ -369,6 +378,15 @@ export class TownRenderer {
     if (!this.app.renderer) return;
     setOccupiedPlots(vms.map((v) => v.plotId));
     for (const [id, node] of this.emptyPlotNodes) node.visible = isPlotFree(id);
+    // 철거가 끝났거나 명예의 전당에 올라간 건물, 다른 마을로 바뀐 경우 지운다
+    const keep = new Set(vms.map((v) => v.projectId));
+    for (const [id, node] of this.buildings) {
+      if (keep.has(id)) continue;
+      node.root.destroy({ children: true });
+      node.label.destroy({ children: true });
+      node.highlight.destroy();
+      this.buildings.delete(id);
+    }
     for (const vm of vms) {
       const plot = plotById(vm.plotId);
       if (!plot) continue;
@@ -403,17 +421,18 @@ export class TownRenderer {
       }
       const prev = node.vm;
       node.vm = vm;
+      const demolishChanged = !!prev.demolishEndsAt !== !!vm.demolishEndsAt;
       if (node.sprite.texture !== tex) {
         node.sprite.texture = tex;
-        if (prev.stage !== vm.stage || prev.condition !== vm.condition) node.pop = 0;
+        if (prev.stage !== vm.stage || prev.condition !== vm.condition || demolishChanged) node.pop = 0;
       }
       const grew = vm.stage > prev.stage;
-      const restored = prev.condition !== 'normal' && vm.condition === 'normal';
+      const restored = (prev.condition !== 'normal' && vm.condition === 'normal') || (!!prev.demolishEndsAt && !vm.demolishEndsAt);
       this.placeSprite(node.sprite, plot, 1.02);
       node.root.zIndex = node.sprite.zIndex;
       node.label.position.set(node.sprite.x, node.sprite.y - node.sprite.height + 4);
       this.applyCondition(node, needsOverlay);
-      if (grew || restored) this.celebrate(node, grew ? `${['착공', '첫 방', '확장', '랜드마크'][vm.stage]}!` : '불이 다시 켜졌어요', grew ? vm.stage : 1);
+      if ((grew || restored) && !vm.demolishEndsAt) this.celebrate(node, grew ? `${['착공', '첫 방', '확장', '랜드마크'][vm.stage]}!` : prev.demolishEndsAt ? '철거 취소 · 다시 지어요' : '불이 다시 켜졌어요', grew ? vm.stage : 1);
     }
   }
 
@@ -473,7 +492,7 @@ export class TownRenderer {
     this.bursts = this.bursts.filter((b) => b.life <= 1800);
   }
 
-  focusStatic(kind: 'cafe' | 'home') {
+  focusStatic(kind: 'cafe' | 'home' | 'hall') {
     const s = STATIC_BUILDINGS.find((x) => x.kind === kind);
     if (!s) return;
     this.walkTo(s.plot.entrance);
@@ -492,6 +511,12 @@ export class TownRenderer {
   private applyCondition(node: BuildingNode, needsOverlay: boolean) {
     node.overlay.removeChildren().forEach((c) => c.destroy());
     const vm = node.vm;
+    if (vm.demolishEndsAt) {
+      node.sprite.filters = [];
+      node.sprite.alpha = 1;
+      node.overlay.addChild(this.makeDemolition(node, vm.demolishEndsAt));
+      return;
+    }
     if (needsOverlay) {
       // 전용 그림이 없는 건물은 ‘불 끄기 + 채도 낮춤 + 비구름’ 오버레이로 낡음을 표현(기획서 11절 상태 레이어)
       const f = new ColorMatrixFilter();
@@ -509,6 +534,44 @@ export class TownRenderer {
     }
     if (vm.paused) node.sprite.alpha = 0.85;
     else node.sprite.alpha = 1;
+  }
+
+  /** 철거 현장: 남은 시간 표시 + 피어오르는 먼지 */
+  private makeDemolition(node: BuildingNode, endsAt: number) {
+    const c = new Container();
+    const top = node.sprite.y - node.sprite.height;
+    const cx = node.sprite.x;
+    const dust = new Graphics();
+    const tag = new Container();
+    const bg = new Graphics();
+    const t = new Text({ text: '', style: { fontFamily: FONT, fontSize: 12, fill: 0x1a0e0a, fontWeight: '700' } });
+    t.resolution = 2;
+    tag.addChild(bg, t);
+    // 이름표(건물 위)와 겹치지 않게 건물 가운데쯤에 둔다
+    tag.position.set(cx, top + node.sprite.height * 0.42);
+    c.addChild(dust, tag);
+    let last = '';
+    const puffs = Array.from({ length: 7 }, (_, i) => ({ x: cx - 50 + i * 16, phase: i * 0.37 }));
+    (c as Container & { tick?: (time: number) => void }).tick = (time: number) => {
+      const left = Math.max(0, endsAt - Date.now());
+      const min = Math.ceil(left / 60000);
+      const label = left <= 0 ? '철거 완료 · 정리 중' : `철거 중 · ${min}분 남음`;
+      if (label !== last) {
+        last = label;
+        t.text = label;
+        const w = t.width + 18;
+        bg.clear().roundRect(-w / 2, -11, w, 22, 5).fill({ color: COLORS.coral });
+        t.position.set(-w / 2 + 9, -11 + (22 - t.height) / 2);
+      }
+      dust.clear();
+      if (this.reduced) return;
+      for (const p of puffs) {
+        const k = ((time / 2200 + p.phase) % 1);
+        const r = 6 + k * 16;
+        dust.circle(p.x + Math.sin(k * 6 + p.phase) * 6, node.sprite.y - 30 - k * 70, r).fill({ color: 0xcdbca4, alpha: 0.28 * (1 - k) });
+      }
+    };
+    return c;
   }
 
   private makeRainCloud(node: BuildingNode) {
@@ -560,7 +623,17 @@ export class TownRenderer {
       const sp = new Sprite(this.tex['char-back-left']);
       sp.anchor.set(0.5, 0.96);
       sp.scale.set(46 / sp.texture.height);
-      sp.tint = i % 2 ? 0xc8dcff : 0xffd9c8;
+      // 외형을 고르지 않은 친구는 살짝 다른 색조로 구분
+      const plain = avatarKey(f.avatar) === avatarKey({});
+      if (plain) sp.tint = i % 2 ? 0xc8dcff : 0xffd9c8;
+      const ftex: Partial<Record<Facing, Texture>> = {};
+      if (!plain) {
+        void this.avatarTextures(f.avatar).then((t) => {
+          if (this.destroyed || sp.destroyed) return;
+          Object.assign(ftex, t);
+          if (ftex['back-left']) sp.texture = ftex['back-left'];
+        });
+      }
       c.addChild(sh, sp);
       c.position.set(p.x, p.y);
       c.zIndex = cell.x + cell.y + 1.5;
@@ -586,7 +659,7 @@ export class TownRenderer {
       this.labels.addChild(lbl.c);
       this.friendNodes.push(c, lbl.c);
       // 접속 중(집중 아님)인 친구는 광장·카페 사이를 천천히 돌아다닌다
-      if (f.status === 'online') this.walkers.push({ node: c, sprite: sp, label: lbl.c, cell, pos: { ...p }, path: [], facing: 'back-left', wait: 1500 + i * 700 });
+      if (f.status === 'online') this.walkers.push({ node: c, sprite: sp, label: lbl.c, cell, pos: { ...p }, path: [], facing: 'back-left', wait: 1500 + i * 700, tex: ftex });
     });
   }
 
@@ -614,7 +687,7 @@ export class TownRenderer {
       const f = facingFor(next.x - w.cell.x, next.y - w.cell.y, w.facing);
       if (f !== w.facing) {
         w.facing = f;
-        w.sprite.texture = this.tex[`char-${f}`];
+        w.sprite.texture = w.tex[f] ?? this.tex[`char-${f}`];
       }
       if (dist <= speed) {
         w.pos = target;
@@ -636,9 +709,36 @@ export class TownRenderer {
   }
 
   // ───────── 캐릭터 ─────────
+  private charFor(f: Facing) {
+    return this.charTex[f] ?? this.tex[`char-${f}`];
+  }
+
+  /** 외형을 입힌 캐릭터 텍스처 4방향 */
+  private async avatarTextures(a: Avatar | undefined): Promise<Partial<Record<Facing, Texture>>> {
+    if (avatarKey(a) === avatarKey({})) return {};
+    const out: Partial<Record<Facing, Texture>> = {};
+    await Promise.all(
+      CHAR_KEYS.map(async (f) => {
+        const cv = await avatarCanvas(a, f);
+        out[f] = Texture.from(cv);
+      }),
+    );
+    return out;
+  }
+
+  async setAvatar(a: Avatar | undefined) {
+    const k = avatarKey(a);
+    if (k === this.avatarKeyNow) return;
+    this.avatarKeyNow = k;
+    const t = await this.avatarTextures(a);
+    if (this.destroyed || k !== this.avatarKeyNow) return;
+    this.charTex = t;
+    if (this.character) this.character.texture = this.charFor(this.facing);
+  }
+
   private createCharacter() {
     this.charShadow = new Graphics().ellipse(0, 0, 13, 5.5).fill({ color: 0x000000, alpha: 0.4 });
-    this.character = new Sprite(this.tex[`char-${this.facing}`]);
+    this.character = new Sprite(this.charFor(this.facing));
     this.character.anchor.set(0.5, 0.96);
     this.character.scale.set(50 / this.character.texture.height);
     this.objects.addChild(this.charShadow, this.character);
@@ -777,7 +877,7 @@ export class TownRenderer {
       const f = facingFor(gdx, gdy, this.facing);
       if (f !== this.facing) {
         this.facing = f;
-        this.character.texture = this.tex[`char-${f}`];
+        this.character.texture = this.charFor(f);
       }
       if (dist <= speed) {
         this.charPos = target;

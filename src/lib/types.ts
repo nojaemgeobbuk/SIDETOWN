@@ -28,7 +28,11 @@ export interface Quest {
   due?: ISODate;
   baselineDue?: ISODate;
   pinned?: boolean;
+  note?: string;
 }
+
+/** 친구에게 보이는 범위: 비공개 · 겉모습만(이름·건물·단계) · 세부 일정까지 */
+export type Visibility = 'private' | 'exterior' | 'town';
 
 export interface Project {
   id: string;
@@ -40,7 +44,8 @@ export interface Project {
   start: ISODate;
   target: ISODate;
   baselineTarget: ISODate;
-  status: 'active' | 'paused' | 'completed';
+  /** demolishing: 철거 중(1시간), archived: 철거 끝(마을에서 사라짐) */
+  status: 'active' | 'paused' | 'completed' | 'demolishing' | 'archived';
   condition: Condition;
   milestones: Milestone[];
   quests: Quest[];
@@ -48,6 +53,30 @@ export interface Project {
   ownerId?: string;
   stage?: number;
   planVersion?: number;
+  visibility?: Visibility;
+  /** 철거가 끝나는 시각(ISO) */
+  demolishEndsAt?: string;
+  /** 명예의 전당에 올린 시각(ISO). 있으면 마을 부지에서 빠진다 */
+  hallAt?: string;
+  copiedFrom?: string;
+  /** 철거를 취소하면 돌아갈 상태 */
+  prevStatus?: 'active' | 'paused';
+}
+
+/** 캐릭터 외형(팔레트 키) */
+export interface Avatar {
+  hair?: string;
+  skin?: string;
+  top?: string;
+  bottom?: string;
+}
+
+export interface TownSummary {
+  id: string;
+  name: string;
+  members: number;
+  myProjects: number;
+  ownerId?: string;
 }
 
 export type RescheduleScope = 'only' | 'cascade' | 'squeeze';

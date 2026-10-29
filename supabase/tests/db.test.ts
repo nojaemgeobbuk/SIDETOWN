@@ -1,26 +1,8 @@
 // 마이그레이션을 실제 Postgres(PGlite)에 올려 RLS·보상·정원 규칙을 확인한다.
 // Supabase의 auth 스키마와 역할은 최소한으로 흉내 낸다.
-import { readFileSync } from 'node:fs';
-import path from 'node:path';
 import { PGlite } from '@electric-sql/pglite';
 import { beforeAll, describe, expect, it } from 'vitest';
-
-const MIGRATION = readFileSync(
-  path.resolve(import.meta.dirname, '../migrations/20261027000000_init.sql'),
-  'utf8',
-);
-
-const PRELUDE = `
-create role anon nologin;
-create role authenticated nologin;
-create schema auth;
-create table auth.users (id uuid primary key, email text);
-create function auth.uid() returns uuid language sql stable as
-  $$ select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
-grant usage on schema auth to anon, authenticated;
-grant execute on function auth.uid() to anon, authenticated;
-grant usage on schema public to anon, authenticated;
-`;
+import { makeDb } from './harness';
 
 const U = {
   a: '00000000-0000-4000-8000-00000000000a',
@@ -31,25 +13,8 @@ const U = {
 const extra = Array.from({ length: 7 }, (_, i) => `00000000-0000-4000-8000-1000000000${String(i).padStart(2, '0')}`);
 
 let db: PGlite;
-
-async function as<T>(uid: string, fn: () => Promise<T>): Promise<T> {
-  await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [uid]);
-  await db.exec('set role authenticated');
-  try {
-    return await fn();
-  } finally {
-    await db.exec('reset role');
-  }
-}
-async function rpc<T = unknown>(uid: string, sql: string, params: unknown[] = []): Promise<T> {
-  return as(uid, async () => {
-    const r = await db.query<{ v: T }>(`select ${sql} as v`, params);
-    return r.rows[0].v;
-  });
-}
-async function rows<T = Record<string, unknown>>(uid: string, sql: string, params: unknown[] = []) {
-  return as(uid, async () => (await db.query<T>(sql, params)).rows);
-}
+let rpc: Awaited<ReturnType<typeof makeDb>>['rpc'];
+let rows: Awaited<ReturnType<typeof makeDb>>['rows'];
 
 let townA: string;
 let projectId: string;
@@ -57,12 +22,7 @@ let questId: string;
 let milestoneIds: string[];
 
 beforeAll(async () => {
-  db = new PGlite();
-  await db.exec(PRELUDE);
-  await db.exec(MIGRATION);
-  for (const id of [...Object.values(U), ...extra]) {
-    await db.query('insert into auth.users (id) values ($1)', [id]);
-  }
+  ({ db, rpc, rows } = await makeDb([...Object.values(U), ...extra]));
   townA = await rpc<string>(U.a, `public.create_town('노을 마을', '재민')`);
   const token = await rpc<string>(U.a, 'public.create_invite()');
   await rpc(U.b, `public.accept_invite($1, '지우')`, [token]);
@@ -86,10 +46,17 @@ beforeAll(async () => {
 }, 60_000);
 
 describe('RLS', () => {
-  it('같은 마을 친구는 프로젝트 겉모습만, 다른 마을은 아무것도 못 본다', async () => {
+  it('같은 마을 친구는 세부 일정까지(기본), 겉모습만으로 바꾸면 겉모습만, 다른 마을은 아무것도 못 본다', async () => {
     expect(await rows(U.b, 'select title, stage from public.projects')).toEqual([{ title: '에세이 출간', stage: 0 }]);
+    expect((await rows(U.b, 'select id from public.milestones')).length).toBe(2);
+    expect((await rows(U.b, 'select id from public.quests')).length).toBe(1);
+    await rpc(U.a, `public.update_project($1, '{"visibility":"exterior"}'::jsonb)`, [projectId]);
+    expect((await rows(U.b, 'select id from public.projects')).length).toBe(1);
     expect(await rows(U.b, 'select id from public.milestones')).toEqual([]);
     expect(await rows(U.b, 'select id from public.quests')).toEqual([]);
+    await rpc(U.a, `public.update_project($1, '{"visibility":"private"}'::jsonb)`, [projectId]);
+    expect(await rows(U.b, 'select id from public.projects')).toEqual([]);
+    await rpc(U.a, `public.update_project($1, '{"visibility":"town"}'::jsonb)`, [projectId]);
     expect(await rows(U.c, 'select id from public.projects')).toEqual([]);
     expect((await rows(U.a, 'select id from public.milestones')).length).toBe(2);
   });
@@ -166,14 +133,14 @@ describe('낡음·복구', () => {
 });
 
 describe('마을 정원', () => {
-  it('8명을 넘길 수 없고 한 사람은 한 마을에만', async () => {
+  it('8명을 넘길 수 없다', async () => {
     // 지금 a·b·d = 3명. 5명 더 → 8명
     const t1 = await rpc<string>(U.a, 'public.create_invite()');
     for (const id of extra.slice(0, 5)) await rpc(id, `public.accept_invite($1, '이웃')`, [t1]);
     expect(await rows(U.a, 'select user_id from public.town_members')).toHaveLength(8);
     await expect(rpc(extra[5], `public.accept_invite($1, '이웃')`, [t1])).rejects.toThrow(/town full/);
     const t2 = await rpc<string>(U.a, 'public.create_invite()');
-    await expect(rpc(U.c, `public.accept_invite($1, '세오')`, [t2])).rejects.toThrow(/already in a town|town full/);
+    await expect(rpc(U.c, `public.accept_invite($1, '세오')`, [t2])).rejects.toThrow(/town full/);
   });
 
   it('초대 미리보기는 로그인 전에도 이름만 보인다', async () => {

@@ -15,6 +15,7 @@ export interface Friend {
   /** 집중 중일 때 작업 중인 건물 */
   plotId?: string;
   focusMinutes?: number;
+  avatar?: import('./types').Avatar;
 }
 
 export interface Message {
@@ -32,7 +33,7 @@ export interface Message {
 export const MESSAGE_MAX = 200;
 
 export const FRIENDS: Friend[] = [
-  { id: 'jiwoo', name: '지우', initial: '지', bg: '#3a2a26', fg: '#f2c8b8', status: 'focus', plotId: 'plot-c', focusMinutes: 18 },
+  { id: 'jiwoo', name: '지우', initial: '지', bg: '#3a2a26', fg: '#f2c8b8', status: 'focus', plotId: 'plot-e', focusMinutes: 18 },
   { id: 'min', name: '민', initial: '민', bg: '#23314a', fg: '#bfd0ee', status: 'online' },
   { id: 'seo', name: '서', initial: '서', bg: '#2c3328', fg: '#cfe0b8', status: 'offline' },
 ];
@@ -67,11 +68,11 @@ const PALETTE: [string, string][] = [
 ];
 
 /** 서버 사용자 → 친구 표시 정보. 색은 id로 고정 */
-export function toFriend(id: string, nickname: string, status: Friend['status'] = 'offline'): Friend {
+export function toFriend(id: string, nickname: string, status: Friend['status'] = 'offline', avatar?: Friend['avatar']): Friend {
   let h = 0;
   for (const c of id) h = (h * 31 + c.charCodeAt(0)) >>> 0;
   const [bg, fg] = PALETTE[h % PALETTE.length];
-  return { id, name: nickname, initial: [...nickname][0] ?? '?', bg, fg, status };
+  return { id, name: nickname, initial: [...nickname][0] ?? '?', bg, fg, status, avatar };
 }
 
 export function relTime(at: string, now = new Date()): string {

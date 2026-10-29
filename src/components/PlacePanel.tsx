@@ -8,6 +8,9 @@ import type { BuildingType } from '@/lib/types';
 import type { DraftResponse } from '@/lib/plan-draft';
 import { useApp, type View } from '@/store/useApp';
 import { IconClose } from './icons';
+import AvatarEditor from './AvatarEditor';
+import AvatarImg from './AvatarImg';
+import HallOfFame from './HallOfFame';
 
 /** 프로젝트가 아닌 장소 패널: 공용 카페, 내 집, 빈 부지(새 프로젝트), 쪽지함 */
 export default function PlacePanel({ view }: { view: View }) {
@@ -16,7 +19,8 @@ export default function PlacePanel({ view }: { view: View }) {
     <aside className="panel" aria-label="장소 패널">
       <div className="sheet-handle"><span /></div>
       {view.kind === 'cafe' && <Cafe onClose={close} />}
-      {view.kind === 'home' && <Home onClose={close} />}
+      {view.kind === 'home' && <Home key={view.tab ?? 'room'} initialTab={view.tab ?? 'room'} onClose={close} />}
+      {view.kind === 'hall' && <HallOfFame onClose={close} />}
       {view.kind === 'new' && <NewProject plotId={view.plotId} onClose={close} />}
       {view.kind === 'inbox' && <Inbox friendId={view.friendId} onClose={close} />}
     </aside>
@@ -126,12 +130,14 @@ function Cafe({ onClose }: { onClose: () => void }) {
 }
 
 /* ───────── 내 집: 캐릭터와 진열장 ───────── */
-function Home({ onClose }: { onClose: () => void }) {
+function Home({ onClose, initialTab }: { onClose: () => void; initialTab: 'room' | 'look' }) {
+  const [tab, setTab] = useState(initialTab);
   const projects = useApp((s) => s.projects);
   const xp = useApp((s) => s.xp);
   const select = useApp((s) => s.select);
   const me = useApp((s) => s.me);
   const mode = useApp((s) => s.mode);
+  const hallCount = projects.filter((p) => p.hallAt).length;
   const level = 1 + Math.floor(xp / 100);
   const mastery = (Object.keys(BUILDING_INFO) as BuildingType[]).map((b) => ({
     b,
@@ -141,9 +147,20 @@ function Home({ onClose }: { onClose: () => void }) {
   return (
     <>
       <Head tag="내 집" title={mode === 'live' ? `${me.name}의 집` : '새벽작업실'} sub="캐릭터 · 진열장" onClose={onClose} />
+      <div style={{ padding: '0 20px' }}>
+        <div role="tablist" aria-label="내 집" className="tabs">
+          <button role="tab" aria-selected={tab === 'room'} onClick={() => setTab('room')}>방</button>
+          <button role="tab" aria-selected={tab === 'look'} onClick={() => setTab('look')}>꾸미기</button>
+        </div>
+      </div>
+      {tab === 'look' ? (
+        <div className="panel-scroll"><AvatarEditor /></div>
+      ) : (
       <div className="panel-scroll">
         <div className="card" style={{ display: 'flex', gap: 14, alignItems: 'center', padding: 14 }}>
-          <img src="/assets/character/front-right.png" alt="내 캐릭터" style={{ width: 54, height: 110, objectFit: 'contain' }} />
+          <button onClick={() => setTab('look')} aria-label="캐릭터 꾸미기" style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer' }}>
+            <AvatarImg avatar={me.avatar} height={110} alt="내 캐릭터" />
+          </button>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1 }}>
             <span className="pixel" style={{ color: 'var(--amber)', fontSize: 15 }}>LV {level}</span>
             <div style={{ height: 6, background: 'var(--border)', borderRadius: 3, overflow: 'hidden' }}><div style={{ width: `${xp % 100}%`, height: '100%', background: 'var(--amber)' }} /></div>
@@ -173,12 +190,16 @@ function Home({ onClose }: { onClose: () => void }) {
             </button>
           ))}
         </section>
+        {hallCount > 0 && (
+          <button className="btn btn-sm" style={{ alignSelf: 'flex-start' }} onClick={() => useApp.getState().openView({ kind: 'hall' })}>명예의 전당에 올린 내 랜드마크 {hallCount}개 보기</button>
+        )}
         {mode === 'live' && (
           <form action="/auth/signout" method="post">
             <button className="btn btn-ghost btn-sm">로그아웃</button>
           </form>
         )}
       </div>
+      )}
     </>
   );
 }
