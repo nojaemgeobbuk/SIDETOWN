@@ -17,7 +17,7 @@ export default async function InvitePage({ params }: { params: Promise<{ token: 
   if (!p || !p.valid || p.members >= 8) {
     return (
       <AuthShell kicker="INVITE" title="이 초대 링크는 쓸 수 없어요" sub={p && p.members >= 8 ? '마을 정원(8명)이 다 찼어요.' : '링크가 만료됐거나 취소됐어요. 친구에게 새 링크를 부탁해 주세요.'}>
-        <Link href="/" className="btn btn-sm" style={{ textDecoration: 'none', alignSelf: 'flex-start' }}>처음으로</Link>
+        <a href="/auth/invite-done" className="btn btn-sm" style={{ textDecoration: 'none', alignSelf: 'flex-start' }}>처음으로</a>
       </AuthShell>
     );
   }
@@ -32,18 +32,13 @@ export default async function InvitePage({ params }: { params: Promise<{ token: 
     );
   }
 
-  const { data: member } = await supabase.from('town_members').select('town_id').eq('user_id', uid).maybeSingle();
-  if (member) {
-    return (
-      <AuthShell kicker="INVITE" title="이미 다른 마을에 살고 있어요" sub="지금은 한 사람이 한 마을에만 살 수 있어요.">
-        <Link href="/" className="btn btn-sm" style={{ textDecoration: 'none', alignSelf: 'flex-start' }}>내 마을로</Link>
-      </AuthShell>
-    );
-  }
+  // 여러 마을에 속할 수 있으므로 ‘이미 다른 마을’이라고 막지 않는다. 이미 이 마을 주민이면 수락이 곧 그 마을로 이동이다
+  const { data: profile } = await supabase.from('profiles').select('nickname').eq('user_id', uid).limit(1);
+  const nickname = (profile?.[0]?.nickname as string | undefined) ?? '';
 
   return (
     <AuthShell kicker="INVITE" title={`‘${p.town_name}’에 들어가기`} sub={`지금 ${p.members}명이 살고 있어요. 들어가면 친구들의 건물이 보이고 쪽지를 주고받을 수 있어요.`}>
-      <AcceptInviteForm token={token} />
+      <AcceptInviteForm token={token} defaultNickname={nickname} />
     </AuthShell>
   );
 }

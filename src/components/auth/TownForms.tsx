@@ -46,8 +46,8 @@ export function CreateTownForm() {
 }
 
 /** 초대 링크로 온 사람: 닉네임 → 마을 들어가기 */
-export function AcceptInviteForm({ token }: { token: string }) {
-  const [nickname, setNickname] = useState('');
+export function AcceptInviteForm({ token, defaultNickname = '' }: { token: string; defaultNickname?: string }) {
+  const [nickname, setNickname] = useState(defaultNickname);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const ok = nickname.trim().length > 0;
@@ -64,10 +64,11 @@ export function AcceptInviteForm({ token }: { token: string }) {
           setBusy(false);
           return;
         }
-        window.location.assign('/');
+        // 기억해 둔 초대를 지우고 그 마을로(accept_invite가 지금 마을로 정해 둔다)
+        window.location.assign('/auth/invite-done');
       }}
     >
-      <Field label="마을에서 불릴 이름" value={nickname} onChange={(e) => setNickname(e.target.value)} maxLength={20} placeholder="예: 지우" autoFocus required />
+      <Field label="마을에서 불릴 이름" hint={defaultNickname ? '다른 마을에서 쓰던 이름이에요. 바꾸면 모든 마을에서 바뀌어요.' : undefined} value={nickname} onChange={(e) => setNickname(e.target.value)} maxLength={20} placeholder="예: 지우" autoFocus required />
       <button className="btn btn-primary" disabled={!ok || busy} style={{ height: 44, opacity: ok ? 1 : 0.5 }}>{busy ? '들어가는 중…' : '이 마을에 들어가기'}</button>
       {err && <span role="alert" style={{ fontSize: 12, color: 'var(--coral)' }}>{err}</span>}
     </form>
