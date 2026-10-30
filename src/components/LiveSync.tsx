@@ -4,15 +4,21 @@ import { useEffect, useRef } from 'react';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import { supabaseBrowser } from '@/lib/supabase/client';
 import { useApp, type Mode, type Presence } from '@/store/useApp';
+import { focusPresence, useFocus } from '@/focus/useFocus';
 
 /**
  * 앱 시작(데모/서버 모드)과 실시간 동기화.
  *  - 쪽지·프로젝트 표 변화 → 다시 불러오기(RLS가 볼 수 있는 행만 보내 준다)
  *  - Presence: 접속·집중 상태와 작업 중인 건물. 저장하지 않는 휘발성 정보
- *  presence가 'focus'인 화면(집중 모드)에서는 쪽지 알림을 띄우지 않는다(기획서 13.5)
+ *  - 집중 타이머 시계: 어느 화면에 있든 구간이 끝나면 다음 구간으로 넘기고 알린다
+ *  집중 구간이 돌아가는 동안에는 쪽지 알림을 띄우지 않는다(기획서 13.5)
  */
-export default function LiveSync({ mode, meId, presence }: { mode: Mode; meId?: string; presence: Presence }) {
+export default function LiveSync({ mode, meId }: { mode: Mode; meId?: string; presence?: Presence }) {
   const townId = useApp((s) => s.townId);
+  const timer = useFocus((s) => s.timer);
+  const focusProject = useFocus((s) => s.projectId);
+  const workPlot = useApp((s) => s.projects.find((p) => p.id === focusProject)?.plotId);
+  const presence: Presence = focusPresence({ timer, projectId: focusProject }, () => workPlot);
   const presenceRef = useRef(presence);
   const channelRef = useRef<RealtimeChannel | null>(null);
 
@@ -22,6 +28,21 @@ export default function LiveSync({ mode, meId, presence }: { mode: Mode; meId?: 
     const t = setInterval(() => useApp.getState().tickClock(), 30_000);
     return () => clearInterval(t);
   }, [mode, meId]);
+
+  // 집중 타이머 시계(화면과 무관하게 하나)
+  useEffect(() => {
+    useFocus.getState().hydrate();
+    const t = setInterval(() => useFocus.getState().tick(), 500);
+    const unsub = useFocus.subscribe((s, prev) => {
+      if (!s.lastFinished || s.lastFinished === prev.lastFinished || s.open) return;
+      // 집중 화면 밖에 있을 때만 알림(안에서는 화면이 직접 보여 준다)
+      useApp.getState().notify(s.lastFinished.mode === 'focus' ? '집중 25분 끝! 쉬는 시간이에요' : '쉬는 시간 끝 · 다음 집중을 시작했어요', 'good');
+    });
+    return () => {
+      clearInterval(t);
+      unsub();
+    };
+  }, []);
 
   useEffect(() => {
     if (mode !== 'live' || !townId || !meId) return;

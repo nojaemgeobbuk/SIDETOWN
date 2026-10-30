@@ -24,8 +24,6 @@ const VIEWS = [
 ] as const;
 type ViewKey = (typeof VIEWS)[number][0];
 
-const PRESENCE = { status: 'online' } as const;
-
 export default function PlanApp({ mode, meId }: { mode: Mode; meId?: string }) {
   const params = useSearchParams();
   const router = useRouter();
@@ -73,7 +71,7 @@ export default function PlanApp({ mode, meId }: { mode: Mode; meId?: string }) {
 
   return (
     <div className="shell">
-      <LiveSync mode={mode} meId={meId} presence={PRESENCE} />
+      <LiveSync mode={mode} meId={meId} />
       <Topbar />
       <div className="body">
         <Rail active="plan" />

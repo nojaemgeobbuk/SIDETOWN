@@ -396,3 +396,38 @@ button.tl-name { border-top: none; border-left: none; color: inherit; text-align
   .devtools[open] .dev-body { width: 200px; }
 }
 @media (max-width: 640px) { .ov-stat b { font-size: 16px; } .ov-proj svg { width: 100%; } }
+
+/* ───────── 집중 모드: 마을 화면 그대로 전체 화면 ───────── */
+.shell.focus-on .topbar, .shell.focus-on .rail, .shell.focus-on .panel, .shell.focus-on .mobile-nav,
+.shell.focus-on .hud, .shell.focus-on .town-growth, .shell.focus-on .demo-banner, .shell.focus-on .devtools { display: none !important; }
+.shell.focus-on .body { padding-bottom: 0; }
+.shell.focus-on .stage { flex: 1 1 100%; }
+.focus-layer { position: absolute; inset: 0; z-index: 8; pointer-events: none; }
+.focus-layer > * { pointer-events: auto; }
+.focus-layer > canvas, .focus-vignette, .focus-progress { pointer-events: none !important; }
+.focus-vignette { position: absolute; inset: 0; background: radial-gradient(ellipse at 50% 45%, transparent 55%, rgba(8,10,16,0.55) 100%), linear-gradient(to bottom, rgba(14,17,27,0.55), transparent 90px, transparent calc(100% - 260px), rgba(14,17,27,0.7)); }
+.focus-progress { position: absolute; left: 0; top: 0; height: 3px; transition: width 0.25s linear; }
+.focus-top { position: absolute; left: 20px; right: 20px; top: 16px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.focus-chip { padding: 5px 10px !important; font-size: 12px; display: flex; align-items: center; gap: 6px; }
+.focus-weather { background: rgba(18,23,37,0.92); }
+.focus-banner { position: absolute; left: 50%; top: 72px; transform: translateX(-50%); border-color: rgba(108,195,160,0.6) !important; font-size: 14px; white-space: nowrap; }
+.focus-ask { position: absolute; left: 50%; top: 120px; transform: translateX(-50%); display: flex; flex-direction: column; gap: 10px; width: min(420px, calc(100vw - 32px)); }
+.focus-timer { position: absolute; left: 20px; bottom: 20px; width: min(420px, calc(100vw - 40px)); display: flex; flex-direction: column; gap: 12px; border-radius: 14px !important; padding: 18px 20px !important; }
+.focus-clock { font-size: clamp(56px, 10vw, 92px); line-height: 0.9; letter-spacing: -3px; }
+.focus-quest { padding: 7px 10px; font-size: 13px; font-weight: 600; }
+.focus-sound { position: absolute; right: 20px; bottom: 20px; width: 310px; display: flex; flex-direction: column; gap: 12px; border-radius: 14px !important; padding: 16px 18px !important; }
+.focus-pill { position: absolute; left: 20px; bottom: 20px; display: flex; gap: 10px; align-items: center; color: var(--text); cursor: pointer; }
+.focus-mini { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 10px; border-radius: 16px; border: 1px solid; background: var(--raise); color: var(--text); font-size: 13px; }
+@media (max-width: 900px) {
+  .focus-sound { display: none; }
+  .focus-sub, .focus-chip { display: none; }
+}
+@media (max-width: 640px) {
+  .focus-top { left: 12px; right: 12px; top: 10px; gap: 6px; }
+  .focus-top .pixel { display: none; }
+  .focus-timer { left: 12px; right: 12px; bottom: 12px; width: auto; padding: 14px 16px !important; }
+  .focus-mini-label { display: none; }
+}
+.focus-bgm-mini { display: none; align-items: center; gap: 8px; }
+@media (max-width: 900px) { .focus-bgm-mini { display: flex; } }
+@media (max-width: 640px) { .focus-weather button { padding: 0 9px; } .focus-top .btn-sm { padding: 0 8px; } }

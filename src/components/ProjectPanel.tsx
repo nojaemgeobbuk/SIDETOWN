@@ -19,6 +19,7 @@ import { IconCalendar, IconClose, IconCopy, IconEdit, IconFlag, IconPlay, IconPl
 import Drawer, { QuestQuickAdd } from './plan/Drawer';
 import type { Selection } from './plan/shared';
 import Voyage from './Voyage';
+import { enterFocus } from './FocusOverlay';
 
 const md = (d?: string) => (d ? d.slice(5).replace('-', '.') : '');
 const HEALTH: Record<Health, [string, string]> = { ok: ['순항', '#6CC3A0'], warn: ['주의', '#F4B03E'], late: ['지연', '#E8775A'] };
@@ -296,14 +297,16 @@ function PanelBody({ project: p, onClose }: { project: Project; onClose: () => v
       <div className="panel-foot">
         {canEdit ? (
           <>
-            <Link
-              href={`/focus?project=${p.id}${focusQuest ? `&quest=${focusQuest.id}` : ''}`}
+            <button
               className="btn btn-primary"
-              style={{ flex: 1, textDecoration: 'none' }}
-              onClick={() => startWork(p.id, focusQuest?.id)}
+              style={{ flex: 1 }}
+              onClick={() => {
+                startWork(p.id, focusQuest?.id);
+                enterFocus({ projectId: p.id, questId: focusQuest?.id });
+              }}
             >
-              <IconPlay /> 작업 이어가기
-            </Link>
+              <IconPlay /> 작업 이어가기 · 집중 모드
+            </button>
             <button className="btn" onClick={() => setSub({ kind: 'new-quest', projectId: p.id, milestoneId: active?.id })}><IconPlus /> 퀘스트</button>
           </>
         ) : (

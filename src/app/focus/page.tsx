@@ -1,15 +1,10 @@
-import { Suspense } from 'react';
-import FocusScreen from '@/components/FocusScreen';
-import { hasSupabase } from '@/lib/supabase/env';
-import { requireMember } from '@/lib/supabase/session';
+import { redirect } from 'next/navigation';
 
-export const metadata = { title: '집중 모드 — SideTown' };
-
-export default async function FocusPage() {
-  const meId = hasSupabase ? await requireMember('/focus') : undefined;
-  return (
-    <Suspense fallback={null}>
-      <FocusScreen appMode={meId ? 'live' : 'demo'} meId={meId} />
-    </Suspense>
-  );
+/** v1.4: 집중 모드는 마을 화면을 전체 화면으로 바꿔 연다. 예전 /focus 링크는 그쪽으로 보낸다 */
+export default async function FocusPage({ searchParams }: { searchParams: Promise<{ project?: string; quest?: string }> }) {
+  const sp = await searchParams;
+  const q = new URLSearchParams({ focus: '1' });
+  if (sp.project) q.set('project', sp.project);
+  if (sp.quest) q.set('quest', sp.quest);
+  redirect(`/?${q.toString()}`);
 }

@@ -1,6 +1,7 @@
 'use client';
 
-import Link from 'next/link';
+import { usePathname, useRouter } from 'next/navigation';
+import { enterFocus } from '../FocusOverlay';
 import { useEffect, useState } from 'react';
 import { addDays } from '@/lib/schedule';
 import { md } from '@/lib/plan';
@@ -119,6 +120,8 @@ function QuestDetail({ projectId, questId, onClose }: { projectId: string; quest
   const friendName = useApp((s) => s.friends.find((f) => f.id === p?.ownerId)?.name);
   const { updateQuest, deleteQuest, toggleQuest, postpone, sendMessage } = useApp.getState();
   const [scope, setScope] = useState<RescheduleScope>('only');
+  const router = useRouter();
+  const path = usePathname();
   const [cheer, setCheer] = useState('');
   const q = p?.quests.find((x) => x.id === questId);
   if (!p || !q) {
@@ -247,9 +250,16 @@ function QuestDetail({ projectId, questId, onClose }: { projectId: string; quest
               {done ? '완료 취소 · −10XP' : '완료하기 · +10XP'}
             </button>
             {!done && (
-              <Link href={`/focus?project=${encodeURIComponent(projectId)}&quest=${encodeURIComponent(questId)}`} className="btn" style={{ textDecoration: 'none' }} aria-label="이 퀘스트로 집중 시작">
+              <button
+                className="btn"
+                aria-label="이 퀘스트로 집중 모드 시작"
+                onClick={() => {
+                  enterFocus({ projectId, questId });
+                  if (path !== '/') router.push('/');
+                }}
+              >
                 <IconPlay /> 집중
-              </Link>
+              </button>
             )}
             {!done && (
               <DeleteButton

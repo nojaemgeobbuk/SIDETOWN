@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import { unreadCount } from '@/lib/social';
 import { useApp, type View } from '@/store/useApp';
 import AvatarImg from './AvatarImg';
+import { FocusMini } from './FocusOverlay';
 import { IconCalendar, IconCup, IconDown, IconMail, IconPlus, IconTown, IconTrophy, IconUser } from './icons';
 
 /** 마을·계획 화면이 같이 쓰는 상단 바, 왼쪽 메뉴, 모바일 아래 메뉴, 알림 */
@@ -35,6 +36,7 @@ export function Topbar() {
       <span style={{ width: 1, height: 18, background: 'var(--border)' }} className="town-sep" />
       <TownSwitcher />
       <div style={{ flex: 1 }} />
+      <FocusMini />
       <button className="xp" title={`누적 ${xp} XP · 내 집에서 캐릭터 꾸미기`} onClick={() => go({ kind: 'home', tab: 'look' })} style={{ cursor: 'pointer', color: 'inherit' }}>
         <AvatarImg avatar={avatar} facing="front-right" height={34} />
         <span className="pixel" style={{ fontSize: 13, color: 'var(--amber)' }}>LV {level}</span>

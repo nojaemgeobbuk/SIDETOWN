@@ -7,6 +7,9 @@ import { actualProgress, buildingStage, expectedProgress, health } from '@/lib/s
 import { activeProjects, mapProjects, useApp, type Mode } from '@/store/useApp';
 import { EMPTY_PLOTS } from '@/town/map';
 import { MobileNav, Rail, Toaster, Topbar } from './AppChrome';
+import FocusOverlay, { enterFocus } from './FocusOverlay';
+import { useFocus } from '@/focus/useFocus';
+import { useRouter } from 'next/navigation';
 import { IconCalendar, IconExpand } from './icons';
 import FriendProjectPanel from './FriendProjectPanel';
 import LiveSync from './LiveSync';
@@ -16,8 +19,6 @@ import Voyage from './Voyage';
 
 const TownCanvas = dynamic(() => import('./TownCanvas'), { ssr: false });
 
-const PRESENCE_ONLINE = { status: 'online' } as const;
-
 export default function TownApp({ mode, meId }: { mode: Mode; meId?: string }) {
   const projects = useApp((s) => s.projects);
   const townProjects = useApp((s) => s.townProjects);
@@ -26,6 +27,16 @@ export default function TownApp({ mode, meId }: { mode: Mode; meId?: string }) {
   const listMode = useApp((s) => s.listMode);
   const view = useApp((s) => s.view);
   const { setListMode, select, openView } = useApp.getState();
+  const focusOpen = useFocus((s) => s.open);
+  const router = useRouter();
+
+  // 예전 /focus 링크·계획 화면에서 넘어온 경우(?focus=1&project=…&quest=…)
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    if (q.get('focus') !== '1') return;
+    enterFocus({ projectId: q.get('project') ?? undefined, questId: q.get('quest') ?? undefined });
+    router.replace('/', { scroll: false });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const selected = projects.find((p) => p.id === selectedId) ?? null;
   const friendProject = selected ? null : townProjects.find((p) => p.id === selectedId) ?? null;
   // 마을 전체(친구 포함)의 중간 목표 완료 수. 친구가 겉모습만 공개했으면 단계로 대신 센다
@@ -36,6 +47,7 @@ export default function TownApp({ mode, meId }: { mode: Mode; meId?: string }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        if (useFocus.getState().open) return;
         select(null);
         openView(null);
       }
@@ -45,15 +57,16 @@ export default function TownApp({ mode, meId }: { mode: Mode; meId?: string }) {
   }, [select, openView]);
 
   return (
-    <div className="shell">
-      <LiveSync mode={mode} meId={meId} presence={PRESENCE_ONLINE} />
+    <div className={`shell${focusOpen ? ' focus-on' : ''}`}>
+      <LiveSync mode={mode} meId={meId} />
       <Topbar />
       <div className="body">
         <Rail active="town" />
 
         <main className="stage">
           {mode === 'demo' && booted && <span className="demo-banner">데모 마을 · 이 브라우저에만 저장돼요</span>}
-          {!listMode && <TownCanvas panelOpen={!!selected || !!friendProject || !!view} />}
+          {(!listMode || focusOpen) && <TownCanvas panelOpen={!focusOpen && (!!selected || !!friendProject || !!view)} />}
+          {focusOpen && <FocusOverlay />}
           {listMode && <ListView />}
 
           {!listMode && (
@@ -80,7 +93,7 @@ export default function TownApp({ mode, meId }: { mode: Mode; meId?: string }) {
             </button>
             <Link href="/plan" className="btn btn-sm" style={{ height: 40, textDecoration: 'none' }}><IconCalendar width={16} height={16} /> 계획</Link>
             <button className="btn btn-sm" onClick={() => setListMode(!listMode)} style={{ height: 40 }}>{listMode ? '마을로 보기' : '목록으로 보기'}</button>
-            <Link href="/focus" className="btn btn-sm" style={{ height: 40, textDecoration: 'none', borderColor: 'var(--amber)', color: 'var(--amber)' }}><IconExpand /> 전체 화면 집중</Link>
+            <button className="btn btn-sm" onClick={() => enterFocus()} style={{ height: 40, borderColor: 'var(--amber)', color: 'var(--amber)' }}><IconExpand /> 집중 모드</button>
           </div>
 
           {mode === 'demo' && <DevTools />}

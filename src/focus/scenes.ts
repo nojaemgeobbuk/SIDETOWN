@@ -1,55 +1,14 @@
 /**
- * 집중 모드 장면 — 기획서 6.6.
- * 영상: Higgsfield(Kling 3.0)로 만든 10초 루프. 시작·끝 프레임을 같은 그림으로 지정하고
- * 끝 0.6초를 처음과 겹쳐(크로스페이드) 이음새 없이 반복된다.
- * 사람·고양이·우산·커피·물결·바람의 기본 움직임은 영상에, 바람 세기 변화·새 떼·반딧불·낙엽은
- * AmbientLayer가 실시간으로 얹는다.
- * 영상은 Higgsfield CDN에 있다. 단계 1에서 서비스 저장소(Supabase Storage)로 옮긴다.
+ * 집중 모드 날씨 — 기획서 6.6(v1.4).
+ * 영상 장면을 없애고, 마을 지도 위에 실시간 날씨 층(AmbientLayer)만 얹는다.
+ * SceneId 이름은 날씨 층 내부에서 쓰는 값이다(evening = 맑음: 낙엽·새 떼·반딧불).
  */
 export type SceneId = 'evening' | 'rain' | 'snow';
 
-export interface Scene {
-  id: SceneId;
-  label: string;
-  alt: string;
-  poster: string;
-  video: string;
-  /** 세로 화면용 */
-  posterPortrait: string;
-  videoPortrait: string;
-}
-
-const CDN = 'https://d2ol7oe51mr4n9.cloudfront.net/user_34SA7ZeBXVtWFded4tpPq5vJcH1';
-const PORTRAIT_VIDEO = `${CDN}/6432b30d-76d1-4e51-8c15-5fd6c8d1755a.mp4`;
-
-export const SCENES: Scene[] = [
-  {
-    id: 'evening',
-    label: '맑은 저녁',
-    alt: '바람이 부는 저녁 마을. 사람들이 광장을 걷고 카페에서 커피를 마신다',
-    poster: '/assets/scenes/town-night.jpg',
-    video: `${CDN}/3f372131-b131-42c5-adbe-341d1497d1ba.mp4`,
-    posterPortrait: '/assets/scenes/town-portrait.jpg',
-    videoPortrait: PORTRAIT_VIDEO,
-  },
-  {
-    id: 'rain',
-    label: '비 오는 밤',
-    alt: '비 오는 밤의 마을. 우산을 쓴 사람들이 지나가고 물웅덩이에 불빛이 비친다',
-    poster: '/assets/scenes/town-rain.jpg',
-    video: `${CDN}/9bf3b255-d38e-493a-a7a0-7803784d1787.mp4`,
-    posterPortrait: '/assets/scenes/town-portrait.jpg',
-    videoPortrait: PORTRAIT_VIDEO,
-  },
-  {
-    id: 'snow',
-    label: '눈 오는 밤',
-    alt: '눈 오는 밤의 마을. 벤치에서 따뜻한 음료를 마시는 사람과 작은 새',
-    poster: '/assets/scenes/town-snow.jpg',
-    video: `${CDN}/b4ea1cea-a803-4c89-9bdd-4f072c2b27db.mp4`,
-    posterPortrait: '/assets/scenes/town-portrait.jpg',
-    videoPortrait: PORTRAIT_VIDEO,
-  },
+export const WEATHERS: { id: SceneId; label: string; ambience: Partial<Record<'rain' | 'fire' | 'cafe' | 'wave', number>> }[] = [
+  { id: 'evening', label: '맑음', ambience: { rain: 0, cafe: 25, wave: 30 } },
+  { id: 'rain', label: '비', ambience: { rain: 70, cafe: 15, wave: 20 } },
+  { id: 'snow', label: '눈', ambience: { rain: 0, fire: 45, cafe: 15, wave: 10 } },
 ];
 
 /**

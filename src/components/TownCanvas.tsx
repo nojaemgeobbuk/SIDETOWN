@@ -3,6 +3,7 @@
 import { useEffect, useRef } from 'react';
 import { buildingStage } from '@/lib/schedule';
 import { mapProjects, useApp } from '@/store/useApp';
+import { useFocus } from '@/focus/useFocus';
 import type { BuildingVM, TownRenderer } from '@/town/TownRenderer';
 
 export default function TownCanvas({ panelOpen }: { panelOpen: boolean }) {
@@ -14,6 +15,12 @@ export default function TownCanvas({ panelOpen }: { panelOpen: boolean }) {
   const townProjects = useApp((s) => s.townProjects);
   const friends = useApp((s) => s.friends);
   const avatar = useApp((s) => s.me.avatar);
+  const focusOpen = useFocus((s) => s.open);
+  const focusRunning = useFocus((s) => s.timer.endsAt !== null);
+  const focusMode = useFocus((s) => s.timer.mode);
+  const focusProject = useFocus((s) => s.projectId);
+  const workPlot = useApp((s) => s.projects.find((p) => p.id === focusProject)?.plotId);
+  const phase: 'focus' | 'break' | 'idle' = !focusRunning ? 'idle' : focusMode === 'focus' ? 'focus' : 'break';
   const selectedId = useApp((s) => s.selectedId);
   const view = useApp((s) => s.view);
 
@@ -26,10 +33,11 @@ export default function TownCanvas({ panelOpen }: { panelOpen: boolean }) {
       try {
         const { TownRenderer } = await import('@/town/TownRenderer');
         const r = new TownRenderer(el, {
-          onSelectProject: (id) => useApp.getState().select(id),
-          onSelectStatic: (id) => useApp.getState().openView(id === 'home' ? { kind: 'home' } : id === 'hall' ? { kind: 'hall' } : { kind: 'cafe' }),
-          onEmptyPlot: (plotId) => useApp.getState().openView({ kind: 'new', plotId }),
-          onSelectFriend: (friendId) => useApp.getState().openView({ kind: 'inbox', friendId }),
+          // 집중 화면에서는 건물·친구를 눌러도 패널을 열지 않는다(구경만)
+          onSelectProject: (id) => !useFocus.getState().open && useApp.getState().select(id),
+          onSelectStatic: (id) => !useFocus.getState().open && useApp.getState().openView(id === 'home' ? { kind: 'home' } : id === 'hall' ? { kind: 'hall' } : { kind: 'cafe' }),
+          onEmptyPlot: (plotId) => !useFocus.getState().open && useApp.getState().openView({ kind: 'new', plotId }),
+          onSelectFriend: (friendId) => !useFocus.getState().open && useApp.getState().openView({ kind: 'inbox', friendId }),
           onBackgroundTap: () => {
             useApp.getState().select(null);
           },
@@ -47,6 +55,12 @@ export default function TownCanvas({ panelOpen }: { panelOpen: boolean }) {
         r.setSelected(sel);
         syncFriends();
         void r.setAvatar(useApp.getState().me.avatar);
+        // 집중 화면으로 바로 들어온 경우(예: /focus 링크) 렌더러 준비 뒤에 적용
+        const f = useFocus.getState();
+        if (f.open) {
+          const plot = useApp.getState().projects.find((p) => p.id === f.projectId)?.plotId;
+          r.setFocusMode({ on: true, phase: f.timer.endsAt === null ? 'idle' : f.timer.mode === 'focus' ? 'focus' : 'break', workPlotId: plot });
+        }
       } catch (err) {
         console.error(err);
         // 기획서 6.4: WebGL 불가 → 목록 화면으로 전환
@@ -105,6 +119,26 @@ export default function TownCanvas({ panelOpen }: { panelOpen: boolean }) {
   useEffect(() => {
     if (ready.current) void renderer.current?.setAvatar(avatar);
   }, [avatar]);
+
+  // 집중 모드: 전체 화면으로 바뀐 뒤 마을 전체를 맞추고, 타이머 구간에 따라 내 캐릭터가 움직인다
+  useEffect(() => {
+    let raf = 0;
+    const apply = () => renderer.current?.setFocusMode({ on: focusOpen, phase, workPlotId: workPlot });
+    const t = setTimeout(() => {
+      apply();
+      raf = requestAnimationFrame(() => focusOpen && renderer.current?.refit());
+    }, 120);
+    if (!focusOpen) return () => clearTimeout(t);
+    const onResize = () => renderer.current?.refit();
+    window.addEventListener('resize', onResize);
+    document.addEventListener('fullscreenchange', onResize);
+    return () => {
+      clearTimeout(t);
+      cancelAnimationFrame(raf);
+      window.removeEventListener('resize', onResize);
+      document.removeEventListener('fullscreenchange', onResize);
+    };
+  }, [focusOpen, phase, workPlot]);
 
   useEffect(() => {
     const r = renderer.current;

@@ -12,7 +12,7 @@ import {
 } from 'pixi.js';
 import type { Avatar, BuildingType, Condition } from '@/lib/types';
 import { avatarCanvas } from '@/lib/avatar-canvas';
-import { avatarKey } from '@/lib/avatar';
+import { avatarKey, PRESETS } from '@/lib/avatar';
 import { findPath, nearestWalkable, type Cell } from './astar';
 import { cellCenter, facingFor, isoToScreen, screenToCell, TILE_H, TILE_W, type Facing } from './iso';
 import {
@@ -97,6 +97,19 @@ interface BuildingNode {
   pop: number; // 0..1 성장 연출 진행
 }
 
+interface Walker {
+  node: Container;
+  sprite: Sprite;
+  label?: Container;
+  cell: Cell;
+  pos: { x: number; y: number };
+  path: Cell[];
+  facing: Facing;
+  wait: number;
+  tex: Partial<Record<Facing, Texture>>;
+  speed?: number;
+}
+
 function hash(x: number, y: number) {
   const s = Math.sin(x * 127.1 + y * 311.7) * 43758.5453;
   return s - Math.floor(s);
@@ -122,7 +135,12 @@ export class TownRenderer {
   private marker!: Graphics;
   private friendNodes: Container[] = [];
   private emptyPlotNodes = new Map<string, Container>();
-  private walkers: { node: Container; sprite: Sprite; label: Container; cell: Cell; pos: { x: number; y: number }; path: Cell[]; facing: Facing; wait: number; tex: Partial<Record<Facing, Texture>> }[] = [];
+  private walkers: Walker[] = [];
+  /** 집중 모드에서 마을을 거니는 이웃 주민 */
+  private villagers: Walker[] = [];
+  private focus: { on: boolean; phase: 'focus' | 'break' | 'idle'; workPlotId?: string } = { on: false, phase: 'idle' };
+  private selfWait = 0;
+  private selfBubble: { c: Container; t: Text; bg: Graphics; text: string } | null = null;
   private bursts: { g: Graphics; beam: Graphics; cx: number; baseY: number; parts: { x: number; y: number; vx: number; vy: number; c: number; s: number }[]; life: number; text?: Container }[] = [];
   private camTarget: { x: number; y: number; scale: number } | null = null;
   private dragging = false;
@@ -665,10 +683,16 @@ export class TownRenderer {
 
   private static WANDER: Cell[] = [
     { x: 10, y: 9 }, { x: 13, y: 9 }, { x: 15, y: 12 }, { x: 13, y: 14 }, { x: 10, y: 13 }, { x: 9, y: 11 }, { x: 14, y: 17 }, { x: 8, y: 7 },
+    { x: 15, y: 15 }, { x: 19, y: 14 }, { x: 8, y: 15 }, { x: 11, y: 7 }, { x: 16, y: 8 }, { x: 8, y: 11 },
   ];
 
   private tickWalkers(dt: number) {
-    for (const w of this.walkers) {
+    this.tickWalkerList(this.walkers, dt);
+    this.tickWalkerList(this.villagers, dt);
+  }
+
+  private tickWalkerList(list: Walker[], dt: number) {
+    for (const w of list) {
       if (!w.path.length) {
         w.wait -= dt;
         if (w.wait > 0) continue;
@@ -683,7 +707,7 @@ export class TownRenderer {
       const dx = target.x - w.pos.x;
       const dy = target.y - w.pos.y;
       const dist = Math.hypot(dx, dy);
-      const speed = 0.06 * dt;
+      const speed = (w.speed ?? 0.06) * dt;
       const f = facingFor(next.x - w.cell.x, next.y - w.cell.y, w.facing);
       if (f !== w.facing) {
         w.facing = f;
@@ -700,8 +724,115 @@ export class TownRenderer {
       w.node.position.set(w.pos.x, w.pos.y);
       w.sprite.y = -bob;
       w.node.zIndex = w.cell.x + w.cell.y + 1.5;
-      w.label.position.set(w.pos.x, w.pos.y - 52);
+      w.label?.position.set(w.pos.x, w.pos.y - 52);
     }
+  }
+
+  // ───────── 집중 모드: 마을 전체 화면 ─────────
+  /**
+   * 집중 모드를 켜면 화면에 마을 전체를 맞추고 이웃 주민이 돌아다닌다.
+   * 집중 구간에는 내 캐릭터가 작업 중인 건물 앞으로 가서 일하고, 쉬는 시간에는 카페와 광장을 거닌다.
+   */
+  setFocusMode(o: { on: boolean; phase: 'focus' | 'break' | 'idle'; workPlotId?: string }) {
+    if (!this.app.renderer || this.destroyed) return;
+    const was = this.focus;
+    this.focus = o;
+    if (o.on && !was.on) {
+      this.panelOffset = 0;
+      this.camTarget = null;
+      this.fitInitial();
+      this.spawnVillagers();
+    }
+    if (!o.on && was.on) {
+      for (const v of this.villagers) v.node.destroy({ children: true });
+      this.villagers = [];
+      this.setBubble(null);
+      return;
+    }
+    if (!o.on) return;
+    if (was.phase !== o.phase || was.workPlotId !== o.workPlotId || !was.on) {
+      this.selfWait = 0;
+      this.goToPhasePlace();
+    }
+  }
+
+  private goToPhasePlace() {
+    const { phase, workPlotId } = this.focus;
+    if (phase === 'focus') {
+      const plot = workPlotId ? plotById(workPlotId) : undefined;
+      if (plot) this.walkTo(plot.entrance);
+      this.setBubble('작업 중');
+    } else if (phase === 'break') {
+      const cafe = STATIC_BUILDINGS.find((x) => x.kind === 'cafe');
+      if (cafe) this.walkTo(cafe.plot.entrance);
+      this.setBubble('쉬는 중');
+    } else {
+      this.setBubble(null);
+    }
+    this.marker.visible = false;
+  }
+
+  /** 쉬는 시간: 도착하면 잠시 머물렀다가 광장 여기저기로 */
+  private tickSelf(dt: number, moving: boolean) {
+    this.marker.visible = false;
+    if (this.selfBubble) {
+      this.selfBubble.c.position.set(this.charPos.x, this.charPos.y - 58);
+      this.selfBubble.c.alpha = moving ? 0.55 : 1;
+    }
+    if (this.focus.phase !== 'break' || moving) return;
+    this.selfWait -= dt;
+    if (this.selfWait > 0) return;
+    this.selfWait = 4000 + Math.random() * 5000;
+    const goal = TownRenderer.WANDER[Math.floor(Math.random() * TownRenderer.WANDER.length)];
+    this.walkTo(goal);
+  }
+
+  private setBubble(text: string | null) {
+    if (!text) {
+      this.selfBubble?.c.destroy({ children: true });
+      this.selfBubble = null;
+      return;
+    }
+    if (this.selfBubble?.text === text) return;
+    this.selfBubble?.c.destroy({ children: true });
+    const lbl = this.makeLabel(text, text === '작업 중', text === '작업 중' ? undefined : 0x6cc3a0);
+    this.labels.addChild(lbl.c);
+    this.selfBubble = { c: lbl.c, t: lbl.t, bg: lbl.bg, text };
+  }
+
+  /** 화면 크기가 바뀐 뒤(전체 화면 전환) 마을 전체를 다시 맞춘다 */
+  refit() {
+    if (!this.app.renderer || this.destroyed) return;
+    this.camTarget = null;
+    this.fitInitial();
+  }
+
+  private spawnVillagers() {
+    for (const v of this.villagers) v.node.destroy({ children: true });
+    this.villagers = [];
+    if (this.reduced) return;
+    const looks = [...PRESETS.slice(1).map((p) => p.avatar), { hair: 'pink', top: 'green', bottom: 'denim', skin: 'white' }];
+    looks.forEach((look, i) => {
+      const cell = TownRenderer.WANDER[(i * 3 + 2) % TownRenderer.WANDER.length];
+      const p = cellCenter(cell.x, cell.y);
+      const c = new Container();
+      const sh = new Graphics().ellipse(0, 0, 11, 4.5).fill({ color: 0x000000, alpha: 0.3 });
+      const sp = new Sprite(this.tex['char-front-left']);
+      sp.anchor.set(0.5, 0.96);
+      sp.scale.set(42 / sp.texture.height);
+      c.addChild(sh, sp);
+      c.position.set(p.x, p.y);
+      c.zIndex = cell.x + cell.y + 1.5;
+      c.eventMode = 'none';
+      this.objects.addChild(c);
+      const w: Walker = { node: c, sprite: sp, cell, pos: { ...p }, path: [], facing: 'front-left', wait: 800 + i * 1300, tex: {}, speed: 0.045 + (i % 3) * 0.01 };
+      void this.avatarTextures(look).then((t) => {
+        if (this.destroyed || sp.destroyed) return;
+        Object.assign(w.tex, t);
+        if (w.tex[w.facing]) sp.texture = w.tex[w.facing]!;
+      });
+      this.villagers.push(w);
+    });
   }
 
   setPanelOffset(px: number) {
@@ -890,6 +1021,7 @@ export class TownRenderer {
     }
     const bob = this.reduced ? 0 : moving ? Math.abs(Math.sin(this.time / 110)) * 3 : Math.sin(this.time / 700) * 0.6;
     this.syncCharacter(bob);
+    if (this.focus.on) this.tickSelf(dt, moving);
 
     if (!this.reduced) this.tickWalkers(dt);
     this.tickBursts(dt);

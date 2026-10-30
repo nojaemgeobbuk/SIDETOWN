@@ -8,8 +8,6 @@ import { MobileNav, Rail, Toaster, Topbar } from './AppChrome';
 import LiveSync from './LiveSync';
 import { IconCopy, IconPlus, IconTown } from './icons';
 
-const PRESENCE = { status: 'online' } as const;
-
 /** 내 마을들(친구 그룹별) 한눈에 보기 · 새 마을 · 마을 간 프로젝트 복사 */
 export default function TownsApp({ mode, meId }: { mode: Mode; meId?: string }) {
   const router = useRouter();
@@ -23,7 +21,7 @@ export default function TownsApp({ mode, meId }: { mode: Mode; meId?: string }) 
 
   return (
     <div className="shell">
-      <LiveSync mode={mode} meId={meId} presence={PRESENCE} />
+      <LiveSync mode={mode} meId={meId} />
       <Topbar />
       <div className="body">
         <Rail active="towns" />
