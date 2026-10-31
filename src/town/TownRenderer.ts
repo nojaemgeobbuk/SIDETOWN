@@ -16,12 +16,18 @@ import { avatarKey, PRESETS } from '@/lib/avatar';
 import { findPath, nearestWalkable, type Cell } from './astar';
 import { cellCenter, facingFor, isoToScreen, screenToCell, TILE_H, TILE_W, type Facing } from './iso';
 import {
+  DISTRICT_PROPS,
+  DISTRICTS,
   EMPTY_PLOTS,
   groundAt,
+  landBounds,
+  nextDistrict,
+  setExpansions as setMapExpansions,
+  unlockedIds,
+  WORLD_H,
+  WORLD_W,
   isWalkable,
   isPlotFree,
-  MAP_H,
-  MAP_W,
   plotById,
   PROPS,
   setOccupiedPlots,
@@ -56,6 +62,8 @@ export interface TownCallbacks {
   onEmptyPlot: (plotId: string) => void;
   onSelectFriend: (friendId: string) => void;
   onBackgroundTap: () => void;
+  /** 섬 가장자리 ‘+’(땅 넓히기) */
+  onExpand?: (districtId: string) => void;
 }
 
 const ASSET_BASE = '/assets';
@@ -119,6 +127,11 @@ export class TownRenderer {
   private app = new Application();
   private world = new Container();
   private ground = new Container();
+  private tiles = new Container();
+  /** ‘+’ 버튼을 이루는 조각(미리보기 점선·버튼·이름표) */
+  private expandParts: Container[] = [];
+  private expandBtn: Container | null = null;
+  private drawnDistrictProps = new Set<string>();
   private objects = new Container();
   private labels = new Container();
   private tex: Record<string, Texture> = {};
@@ -229,40 +242,8 @@ export class TownRenderer {
   }
 
   private drawGround() {
-    const g = new Graphics();
-    for (let y = 0; y < MAP_H; y++) {
-      for (let x = 0; x < MAP_W; x++) {
-        const t = groundAt(x, y);
-        const v = hash(x, y);
-        const palette = t === 'grass' ? COLORS.grass : t === 'paving' ? COLORS.paving : COLORS.water;
-        this.diamond(g, x, y).fill({ color: palette[Math.floor(v * palette.length) % palette.length] });
-        if (t === 'paving') this.diamond(g, x, y).stroke({ width: 1, color: 0x000000, alpha: 0.12 });
-        if (t === 'water' && v > 0.7) {
-          const c = cellCenter(x, y);
-          g.moveTo(c.x - 10, c.y).lineTo(c.x + 6, c.y - 3).stroke({ width: 1.5, color: COLORS.amber, alpha: 0.25 });
-        }
-      }
-    }
-    // 섬 가장자리(앞쪽 두 면)
-    const depth = 22;
-    for (let i = 0; i < MAP_W; i++) {
-      // 오른쪽 아래 면 (y = MAP_H 가장자리)
-      {
-        const a = isoToScreen(i, MAP_H);
-        const b = isoToScreen(i + 1, MAP_H);
-        const water = groundAt(i, MAP_H - 1) === 'water';
-        g.poly([a.x, a.y, b.x, b.y, b.x, b.y + depth, a.x, a.y + depth]).fill({ color: water ? COLORS.waterSide : COLORS.dirtDark });
-      }
-      // 왼쪽 아래 면 (x = MAP_W 가장자리)
-      {
-        const a = isoToScreen(MAP_W, i);
-        const b = isoToScreen(MAP_W, i + 1);
-        const water = groundAt(MAP_W - 1, i) === 'water';
-        g.poly([a.x, a.y, b.x, b.y, b.x, b.y + depth, a.x, a.y + depth]).fill({ color: water ? COLORS.waterSide : COLORS.dirt });
-      }
-    }
-    this.ground.addChild(g);
-
+    this.ground.addChild(this.tiles);
+    this.drawTiles();
     // 가로등 빛 웅덩이
     const glow = new Graphics();
     for (const p of PROPS.filter((p) => p.kind === 'lamp')) {
@@ -277,8 +258,122 @@ export class TownRenderer {
     this.ground.addChild(this.marker);
   }
 
+  /** 땅이 있는 칸만 그리고, 옆이 비어 있는 칸에는 섬 옆면을 붙인다(땅이 넓어지면 다시 그림) */
+  private drawTiles() {
+    this.tiles.removeChildren().forEach((c) => c.destroy());
+    const g = new Graphics();
+    const land = (x: number, y: number) => groundAt(x, y) !== 'void';
+    const depth = 22;
+    for (let y = 0; y < WORLD_H; y++) {
+      for (let x = 0; x < WORLD_W; x++) {
+        const t = groundAt(x, y);
+        if (t === 'void') continue;
+        const v = hash(x, y);
+        const palette = t === 'grass' ? COLORS.grass : t === 'paving' ? COLORS.paving : COLORS.water;
+        this.diamond(g, x, y).fill({ color: palette[Math.floor(v * palette.length) % palette.length] });
+        if (t === 'paving') this.diamond(g, x, y).stroke({ width: 1, color: 0x000000, alpha: 0.12 });
+        if (t === 'water' && v > 0.7) {
+          const c = cellCenter(x, y);
+          g.moveTo(c.x - 10, c.y).lineTo(c.x + 6, c.y - 3).stroke({ width: 1.5, color: COLORS.amber, alpha: 0.25 });
+        }
+        const water = t === 'water';
+        // 오른쪽 아래 면: 아래(y+1)가 비었을 때
+        if (!land(x, y + 1)) {
+          const a = isoToScreen(x, y + 1);
+          const b = isoToScreen(x + 1, y + 1);
+          g.poly([a.x, a.y, b.x, b.y, b.x, b.y + depth, a.x, a.y + depth]).fill({ color: water ? COLORS.waterSide : COLORS.dirtDark });
+        }
+        // 왼쪽 아래 면: 오른쪽(x+1)이 비었을 때
+        if (!land(x + 1, y)) {
+          const a = isoToScreen(x + 1, y);
+          const b = isoToScreen(x + 1, y + 1);
+          g.poly([a.x, a.y, b.x, b.y, b.x, b.y + depth, a.x, a.y + depth]).fill({ color: water ? COLORS.waterSide : COLORS.dirt });
+        }
+      }
+    }
+    this.tiles.addChild(g);
+  }
+
+  // ───────── 땅 넓히기 ─────────
+  /** 열린 구역을 반영: 땅·부지·소품을 더 그리고 ‘+’ 버튼을 다음 자리로 옮긴다 */
+  setExpansions(ids: string[]) {
+    if (!this.app.renderer || this.destroyed) return;
+    const before = unlockedIds().join(',');
+    setMapExpansions(ids);
+    if (before === unlockedIds().join(',') && this.expandParts.length) return;
+    this.drawTiles();
+    this.drawEmptyPlots();
+    this.drawDistrictProps();
+    this.drawExpandButton();
+    // 땅이 바뀌면(처음 불러온 넓힌 땅 포함) 전체가 보이게 다시 맞춘다
+    if (before !== unlockedIds().join(',')) this.refit();
+  }
+
+  private drawDistrictProps() {
+    for (const id of unlockedIds()) {
+      if (this.drawnDistrictProps.has(id)) continue;
+      this.drawnDistrictProps.add(id);
+      for (const p of DISTRICT_PROPS[id as keyof typeof DISTRICT_PROPS]) this.placeProp(p);
+    }
+  }
+
+  private drawExpandButton() {
+    for (const p of this.expandParts) p.destroy({ children: true });
+    this.expandParts = [];
+    this.expandBtn = null;
+    const d = nextDistrict();
+    if (!d || this.focus.on) return;
+    const c = new Container();
+    // 열릴 자리 미리보기(점선)
+    const outline = new Graphics();
+    const { x, y, w, h } = d.area;
+    const pts = [isoToScreen(x, y), isoToScreen(x + w, y), isoToScreen(x + w, y + h), isoToScreen(x, y + h)];
+    for (let i = 0; i < 4; i++) {
+      const a = pts[i];
+      const b = pts[(i + 1) % 4];
+      const len = Math.hypot(b.x - a.x, b.y - a.y);
+      const n = Math.floor(len / 12);
+      for (let k = 0; k < n; k += 2) {
+        const t0 = k / n;
+        const t1 = Math.min(1, (k + 1) / n);
+        outline.moveTo(a.x + (b.x - a.x) * t0, a.y + (b.y - a.y) * t0).lineTo(a.x + (b.x - a.x) * t1, a.y + (b.y - a.y) * t1);
+      }
+    }
+    outline.stroke({ width: 1.5, color: COLORS.amber, alpha: 0.35 });
+    const at = isoToScreen(d.anchor.x, d.anchor.y);
+    const btn = new Container();
+    const disc = new Graphics().circle(0, 0, 15).fill({ color: COLORS.panel, alpha: 0.95 }).stroke({ width: 2, color: COLORS.amber });
+    const plus = new Graphics().moveTo(-6, 0).lineTo(6, 0).moveTo(0, -6).lineTo(0, 6).stroke({ width: 2.5, color: COLORS.amber });
+    btn.addChild(disc, plus);
+    btn.position.set(at.x, at.y);
+    btn.eventMode = 'static';
+    btn.cursor = 'pointer';
+    btn.hitArea = new Rectangle(-20, -20, 40, 40);
+    const tip = this.makeLabel('땅 넓히기 · 부지 2칸', false, COLORS.amber);
+    tip.c.position.set(at.x, at.y - 20);
+    tip.c.visible = false;
+    btn.on('pointerover', () => (tip.c.visible = true));
+    btn.on('pointerout', () => (tip.c.visible = false));
+    btn.on('pointertap', (e: FederatedPointerEvent) => {
+      if (this.dragging) return;
+      this.consumed = true;
+      e.stopPropagation();
+      this.cb.onExpand?.(d.id);
+    });
+    c.addChild(outline);
+    this.ground.addChild(c);
+    const top = new Container();
+    top.addChild(btn);
+    top.zIndex = 9000;
+    this.objects.addChild(top);
+    this.labels.addChild(tip.c);
+    this.expandParts = [c, top, tip.c];
+    this.expandBtn = btn;
+  }
+
   private drawEmptyPlots() {
     for (const p of EMPTY_PLOTS) {
+      if (this.emptyPlotNodes.has(p.id)) continue;
       const holder = new Container();
       const g = new Graphics();
       const pts = [isoToScreen(p.x, p.y), isoToScreen(p.x + p.w, p.y), isoToScreen(p.x + p.w, p.y + p.h), isoToScreen(p.x, p.y + p.h)];
@@ -346,7 +441,11 @@ export class TownRenderer {
   }
 
   private drawProps() {
-    for (const p of PROPS) {
+    for (const p of PROPS) this.placeProp(p);
+  }
+
+  private placeProp(p: (typeof PROPS)[number]) {
+    {
       const sp = new Sprite(this.tex[p.kind]);
       sp.anchor.set(0.5, 1);
       const w = p.w ?? 1;
@@ -697,7 +796,7 @@ export class TownRenderer {
         w.wait -= dt;
         if (w.wait > 0) continue;
         const goal = TownRenderer.WANDER[Math.floor(Math.random() * TownRenderer.WANDER.length)];
-        const path = findPath(w.cell, goal, isWalkable, MAP_W, MAP_H);
+        const path = findPath(w.cell, goal, isWalkable, WORLD_W, WORLD_H);
         if (path) w.path = path.slice(1);
         w.wait = 2500 + Math.random() * 4000; // 도착하면 잠시 머문다(커피·구경)
         continue;
@@ -737,6 +836,9 @@ export class TownRenderer {
     if (!this.app.renderer || this.destroyed) return;
     const was = this.focus;
     this.focus = o;
+    if (o.on !== was.on) {
+      for (const p of this.expandParts) p.visible = !o.on;
+    }
     if (o.on && !was.on) {
       this.panelOffset = 0;
       this.camTarget = null;
@@ -879,11 +981,11 @@ export class TownRenderer {
   walkTo(target: Cell) {
     let goal = target;
     if (!isWalkable(goal.x, goal.y)) {
-      const n = nearestWalkable(goal, isWalkable, MAP_W, MAP_H);
+      const n = nearestWalkable(goal, isWalkable, WORLD_W, WORLD_H);
       if (!n) return;
       goal = n;
     }
-    const path = findPath(this.charCell, goal, isWalkable, MAP_W, MAP_H);
+    const path = findPath(this.charCell, goal, isWalkable, WORLD_W, WORLD_H);
     if (!path) return;
     this.path = path.slice(1);
     this.marker.clear();
@@ -912,15 +1014,16 @@ export class TownRenderer {
   private fitInitial() {
     const w = this.app.screen.width;
     const h = this.app.screen.height;
-    // 섬 전체(건물 높이 포함) 경계: x ∈ [−MAP_H·32, MAP_W·32], y ∈ [−180, (MAP_W+MAP_H)·16 + 측면]
-    const contentW = ((MAP_W + MAP_H) * TILE_W) / 2;
+    // 섬 전체(건물 높이 포함) 경계: x ∈ [−H·32, W·32], y ∈ [−180, (W+H)·16 + 측면] — W·H는 넓어진 땅까지
+    const { w: LW, h: LH } = landBounds();
+    const contentW = ((LW + LH) * TILE_W) / 2;
     const top = -180;
-    const bottom = ((MAP_W + MAP_H) * TILE_H) / 2 + 24;
+    const bottom = ((LW + LH) * TILE_H) / 2 + 24;
     const narrow = w < 700;
     const scale = narrow
       ? Math.max(0.36, Math.min(0.6, w / 900))
       : Math.max(0.45, Math.min(1.2, (w / contentW) * 0.96, (h / (bottom - top)) * 0.96));
-    const cx = 0;
+    const cx = ((LW - LH) * TILE_W) / 4;
     const cy = narrow ? isoToScreen(11, 10).y : (top + bottom) / 2;
     this.world.scale.set(scale);
     this.world.position.set(w / 2 - cx * scale, (narrow ? h * 0.42 : h / 2) - cy * scale);
@@ -979,7 +1082,7 @@ export class TownRenderer {
       if (wasDrag || this.consumed) return;
       const local = this.world.toLocal(e.global);
       const cell = screenToCell(local.x, local.y);
-      if (cell.x < 0 || cell.y < 0 || cell.x >= MAP_W || cell.y >= MAP_H) {
+      if (groundAt(cell.x, cell.y) === 'void') {
         this.cb.onBackgroundTap();
         return;
       }
@@ -1022,6 +1125,7 @@ export class TownRenderer {
     const bob = this.reduced ? 0 : moving ? Math.abs(Math.sin(this.time / 110)) * 3 : Math.sin(this.time / 700) * 0.6;
     this.syncCharacter(bob);
     if (this.focus.on) this.tickSelf(dt, moving);
+    if (this.expandBtn && !this.reduced) this.expandBtn.scale.set(1 + Math.sin(this.time / 500) * 0.07);
 
     if (!this.reduced) this.tickWalkers(dt);
     this.tickBursts(dt);

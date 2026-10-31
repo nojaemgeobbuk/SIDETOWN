@@ -13,6 +13,7 @@ export default function TownCanvas({ panelOpen }: { panelOpen: boolean }) {
   const friendsKey = useRef('');
   const projects = useApp((s) => s.projects);
   const townProjects = useApp((s) => s.townProjects);
+  const expansions = useApp((s) => s.expansions);
   const friends = useApp((s) => s.friends);
   const avatar = useApp((s) => s.me.avatar);
   const focusOpen = useFocus((s) => s.open);
@@ -38,6 +39,7 @@ export default function TownCanvas({ panelOpen }: { panelOpen: boolean }) {
           onSelectStatic: (id) => !useFocus.getState().open && useApp.getState().openView(id === 'home' ? { kind: 'home' } : id === 'hall' ? { kind: 'hall' } : { kind: 'cafe' }),
           onEmptyPlot: (plotId) => !useFocus.getState().open && useApp.getState().openView({ kind: 'new', plotId }),
           onSelectFriend: (friendId) => !useFocus.getState().open && useApp.getState().openView({ kind: 'inbox', friendId }),
+          onExpand: () => !useFocus.getState().open && useApp.getState().setExpandOpen(true),
           onBackgroundTap: () => {
             useApp.getState().select(null);
           },
@@ -82,6 +84,8 @@ export default function TownCanvas({ panelOpen }: { panelOpen: boolean }) {
     const r = renderer.current;
     if (!r || !ready.current) return;
     const s = useApp.getState();
+    // 열린 땅 구역을 먼저 반영해야 그 부지의 건물이 놓인다
+    r.setExpansions(s.expansions);
     const vms: BuildingVM[] = mapProjects(s).map((p) => ({
       projectId: p.id,
       plotId: p.plotId,
@@ -110,7 +114,7 @@ export default function TownCanvas({ panelOpen }: { panelOpen: boolean }) {
 
   useEffect(() => {
     sync();
-  }, [projects, townProjects]);
+  }, [projects, townProjects, expansions]);
 
   useEffect(() => {
     syncFriends();

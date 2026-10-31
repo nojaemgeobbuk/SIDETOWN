@@ -8,6 +8,7 @@ import { activeProjects, mapProjects, useApp, type Mode } from '@/store/useApp';
 import { EMPTY_PLOTS } from '@/town/map';
 import { MobileNav, Rail, Toaster, Topbar } from './AppChrome';
 import FocusOverlay, { enterFocus } from './FocusOverlay';
+import LandExpandDialog from './LandExpandDialog';
 import { useFocus } from '@/focus/useFocus';
 import { useRouter } from 'next/navigation';
 import { IconCalendar, IconExpand } from './icons';
@@ -86,7 +87,11 @@ export default function TownApp({ mode, meId }: { mode: Mode; meId?: string }) {
                 const used = new Set(mapProjects(useApp.getState()).map((p) => p.plotId));
                 const free = EMPTY_PLOTS.find((pl) => !used.has(pl.id));
                 if (free) openView({ kind: 'new', plotId: free.id });
-                else useApp.getState().notify('빈 부지가 없어요 · 철거하거나 완공 건물을 명예의 전당에 올리면 부지가 비어요', 'warn');
+                else {
+                  // 빈 부지가 없으면 땅 넓히기를 권한다
+                  useApp.getState().notify('빈 부지가 없어요 · 섬 옆의 ＋로 땅을 넓히거나, 철거·명예의 전당으로 부지를 비울 수 있어요', 'warn');
+                  useApp.getState().setExpandOpen(true);
+                }
               }}
             >
               + 새 프로젝트
@@ -101,6 +106,7 @@ export default function TownApp({ mode, meId }: { mode: Mode; meId?: string }) {
 
         {view ? <PlacePanel view={view} /> : friendProject ? <FriendProjectPanel project={friendProject} /> : <ProjectPanel project={selected} />}
       </div>
+      <LandExpandDialog />
       <MobileNav active="town" />
       <Toaster />
     </div>
