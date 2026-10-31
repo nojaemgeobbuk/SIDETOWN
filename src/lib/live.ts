@@ -7,6 +7,7 @@
 import { supabaseBrowser } from './supabase/client';
 import { toFriend, type Friend, type Message } from './social';
 import { DEFAULT_PREFS, type PlanPrefs } from './plan';
+import { DEFAULT_LAYOUT, type PlaceKind, type TownLayout } from '@/town/map';
 import type { Avatar, ISODate, Milestone, Project, Quest, RescheduleScope, TownSummary } from './types';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -25,7 +26,8 @@ export interface TownSnapshot {
   xp: number;
   today: ISODate;
   prefs: PlanPrefs;
-  /** 열린 땅 구역(e1·s1·e2·s2) */
+  /** 공용 건물 배치 */
+  layout: TownLayout;
 }
 
 /** 사용자 시간대 기준 오늘(YYYY-MM-DD) */
@@ -65,6 +67,8 @@ export function friendlyError(e: unknown): string {
   if (/not completed/.test(m)) return '완공한 프로젝트만 명예의 전당에 올릴 수 있어요';
   if (/projects_town_id_plot_id_key|duplicate key/.test(m)) return '그 부지는 이미 쓰고 있어요. 다른 빈 부지를 골라 주세요';
   if (/plot locked|bad plot/.test(m)) return '마을에 없는 부지예요. 새로고침해 주세요';
+  if (/plot taken|duplicate key.*plot/.test(m)) return '그 부지에는 이미 건물이 있어요. 새로고침해 주세요';
+  if (/cannot move/.test(m)) return '지금은 이 건물을 옮길 수 없어요';
   if (/forbidden/.test(m)) return '권한이 없어요';
   if (/not authenticated|JWT/.test(m)) return '로그인이 만료됐어요. 다시 로그인해 주세요';
   if (/Failed to fetch|NetworkError/.test(m)) return '연결이 불안정해요. 잠시 뒤에 다시 시도해 주세요';
@@ -114,7 +118,7 @@ export async function loadTown(meId: string): Promise<TownSnapshot> {
   const townId = unwrap(townIdRaw as any) as string | null;
   if (!townId) throw new LiveError('no town');
 
-  const [town, members, profiles, projects, messages, reads, xp] = await Promise.all([
+  const [town, members, profiles, projects, messages, reads, xp, lay] = await Promise.all([
     sb.from('towns').select('id, name, owner_id').eq('id', townId).maybeSingle(),
     sb.from('town_members').select('user_id, role').eq('town_id', townId),
     sb.from('profiles').select('user_id, nickname, avatar, plan_prefs'),
@@ -122,6 +126,8 @@ export async function loadTown(meId: string): Promise<TownSnapshot> {
     sb.from('messages').select('*').eq('town_id', townId).order('created_at', { ascending: false }).limit(300),
     sb.from('message_reads').select('message_id'),
     sb.rpc('my_xp'),
+    // v1.7 마이그레이션 전이면 열이 없을 수 있다 → 처음 배치
+    sb.from('towns').select('layout').eq('id', townId).maybeSingle(),
   ]);
   const t = unwrap(town as any) as Row | null;
   if (!t) throw new LiveError('no town');
@@ -166,6 +172,7 @@ export async function loadTown(meId: string): Promise<TownSnapshot> {
     xp: (unwrap(xp as any) as number) ?? 0,
     today,
     prefs: { ...DEFAULT_PREFS, ...(mine?.plan_prefs ?? {}) },
+    layout: { ...DEFAULT_LAYOUT, ...(lay.error ? {} : ((lay.data as Row | null)?.layout ?? {})) },
   };
 }
 
@@ -236,10 +243,18 @@ export const live = {
   copyProject: (projectId: string, townId: string, plotId: string) =>
     rpc<string>('copy_project', { p_project: projectId, p_town: townId, p_plot: plotId }),
   /** 다른 마을에서 쓰고 있는 부지(내가 볼 수 있는 범위) */
-  usedPlots: async (townId: string): Promise<string[]> => {
-    const r = await supabaseBrowser().from('projects').select('plot_id').eq('town_id', townId).not('plot_id', 'is', null);
-    return (unwrap(r as any) as Row[]).map((x) => x.plot_id);
+  usedPlots: async (townId: string): Promise<{ used: string[]; layout: TownLayout }> => {
+    const sb = supabaseBrowser();
+    const [r, l] = await Promise.all([
+      sb.from('projects').select('plot_id').eq('town_id', townId).not('plot_id', 'is', null),
+      sb.from('towns').select('layout').eq('id', townId).maybeSingle(),
+    ]);
+    return { used: (unwrap(r as any) as Row[]).map((x) => x.plot_id), layout: { ...DEFAULT_LAYOUT, ...(l.error ? {} : ((l.data as Row | null)?.layout ?? {})) } };
   },
+
+  // 건물 옮기기
+  moveProject: (projectId: string, plotId: string) => rpc('move_project', { p_project: projectId, p_plot: plotId }),
+  movePlace: (townId: string, place: PlaceKind, plotId: string) => rpc('move_place', { p_town: townId, p_place: place, p_plot: plotId }),
 
   // 여러 마을
   switchTown: (townId: string) => rpc('switch_town', { p_town: townId }),

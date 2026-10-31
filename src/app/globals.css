@@ -432,3 +432,9 @@ button.tl-name { border-top: none; border-left: none; color: inherit; text-align
 @media (max-width: 900px) { .focus-bgm-mini { display: flex; } }
 @media (max-width: 640px) { .focus-weather button { padding: 0 9px; } .focus-top .btn-sm { padding: 0 8px; } }
 
+
+/* ───────── 건물 옮기기 ───────── */
+.move-banner { position: absolute; left: 50%; top: 52px; transform: translateX(-50%); z-index: 6; display: flex; align-items: center; gap: 10px; padding: 8px 8px 8px 14px; border-color: rgba(244,176,62,0.6) !important; color: var(--amber); font-size: 13px; white-space: nowrap; }
+.move-banner span { color: var(--text); }
+.move-banner b { color: var(--amber); }
+@media (max-width: 640px) { .move-banner { top: 56px; max-width: calc(100% - 24px); white-space: normal; } }

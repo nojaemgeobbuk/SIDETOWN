@@ -5,12 +5,12 @@ import Link from 'next/link';
 import { useEffect } from 'react';
 import { actualProgress, buildingStage, expectedProgress, health } from '@/lib/schedule';
 import { activeProjects, mapProjects, useApp, type Mode } from '@/store/useApp';
-import { EMPTY_PLOTS } from '@/town/map';
+import { firstFreeLot } from '@/town/map';
 import { MobileNav, Rail, Toaster, Topbar } from './AppChrome';
 import FocusOverlay, { enterFocus } from './FocusOverlay';
 import { useFocus } from '@/focus/useFocus';
 import { useRouter } from 'next/navigation';
-import { IconCalendar, IconExpand } from './icons';
+import { IconCalendar, IconExpand, IconMove } from './icons';
 import FriendProjectPanel from './FriendProjectPanel';
 import LiveSync from './LiveSync';
 import PlacePanel from './PlacePanel';
@@ -28,6 +28,7 @@ export default function TownApp({ mode, meId }: { mode: Mode; meId?: string }) {
   const view = useApp((s) => s.view);
   const { setListMode, select, openView } = useApp.getState();
   const focusOpen = useFocus((s) => s.open);
+  const moving = useApp((s) => s.moving);
   const router = useRouter();
 
   // 예전 /focus 링크·계획 화면에서 넘어온 경우(?focus=1&project=…&quest=…)
@@ -48,6 +49,10 @@ export default function TownApp({ mode, meId }: { mode: Mode; meId?: string }) {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         if (useFocus.getState().open) return;
+        if (useApp.getState().moving) {
+          useApp.getState().cancelMove();
+          return;
+        }
         select(null);
         openView(null);
       }
@@ -67,6 +72,13 @@ export default function TownApp({ mode, meId }: { mode: Mode; meId?: string }) {
           {mode === 'demo' && booted && <span className="demo-banner">데모 마을 · 이 브라우저에만 저장돼요</span>}
           {(!listMode || focusOpen) && <TownCanvas panelOpen={!focusOpen && (!!selected || !!friendProject || !!view)} />}
           {focusOpen && <FocusOverlay />}
+          {moving && !focusOpen && (
+            <div className="move-banner hud-card" role="status">
+              <IconMove />
+              <span><b>{moving.title}</b> · 옮길 빈 부지를 눌러 주세요</span>
+              <button className="btn btn-sm" onClick={() => useApp.getState().cancelMove()}>취소</button>
+            </div>
+          )}
           {listMode && <ListView />}
 
           {!listMode && (
@@ -83,9 +95,9 @@ export default function TownApp({ mode, meId }: { mode: Mode; meId?: string }) {
               className="btn btn-sm"
               style={{ height: 40 }}
               onClick={() => {
-                const used = new Set(mapProjects(useApp.getState()).map((p) => p.plotId));
-                const free = EMPTY_PLOTS.find((pl) => !used.has(pl.id));
-                if (free) openView({ kind: 'new', plotId: free.id });
+                const st = useApp.getState();
+                const free = firstFreeLot(mapProjects(st).map((p) => p.plotId), st.layout);
+                if (free) openView({ kind: 'new', plotId: free });
                 else useApp.getState().notify('빈 부지가 없어요 · 철거하거나 완공 건물을 명예의 전당에 올리면 부지가 비어요', 'warn');
               }}
             >

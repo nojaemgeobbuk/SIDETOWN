@@ -9,7 +9,7 @@ import { createProject, type NewProjectInput } from '@/lib/templates';
 import { friendlyError, live, loadTown } from '@/lib/live';
 import * as edit from '@/lib/edit';
 import { DEFAULT_PREFS, type PlanPrefs } from '@/lib/plan';
-import { EMPTY_PLOTS } from '@/town/map';
+import { DEFAULT_LAYOUT, firstFreeLot, PLACE_LABEL, setLayout as applyMapLayout, type PlaceKind, type TownLayout } from '@/town/map';
 
 /** 패널에 열린 장소. 프로젝트가 아닌 곳(카페·집·빈 부지·쪽지함·명예의 전당) */
 export type View =
@@ -18,6 +18,9 @@ export type View =
   | { kind: 'new'; plotId: string }
   | { kind: 'inbox'; friendId?: string }
   | { kind: 'hall' };
+
+/** 건물 옮기기 대상 */
+export type MoveTarget = { kind: 'project'; id: string; title: string } | { kind: 'place'; place: PlaceKind; title: string };
 
 export interface Toast {
   id: number;
@@ -43,6 +46,7 @@ interface TownData {
   projects: Project[];
   townProjects: Project[];
   messages: Message[];
+  layout?: TownLayout;
 }
 
 interface AppState {
@@ -70,6 +74,14 @@ interface AppState {
   view: View | null;
   messages: Message[];
   demoTowns: Record<string, TownData>;
+  /** 공용 건물(카페·내 집·명예의 전당)이 선 부지 */
+  layout: TownLayout;
+  /** 건물 옮기기 중이면 옮기는 건물 */
+  moving: MoveTarget | null;
+  startMove: (t: MoveTarget) => void;
+  cancelMove: () => void;
+  /** 옮기기: 빈 부지를 고르면 그 자리로 */
+  moveTo: (plotId: string) => Promise<void>;
 
   boot: (opts: { mode: Mode; meId?: string }) => void;
   reload: () => Promise<void>;
@@ -140,6 +152,7 @@ function demoInitial() {
     xp: 620,
     prefs: DEFAULT_PREFS,
     me: toFriend(ME, '나', 'online'),
+    layout: { ...DEFAULT_LAYOUT },
     demoTowns: {
       [t2.id]: {
         id: t2.id,
@@ -155,7 +168,7 @@ function demoInitial() {
 }
 
 type DemoSave = ReturnType<typeof demoInitial>;
-const DEMO_FIELDS = ['townId', 'townName', 'townOwnerId', 'friends', 'projects', 'townProjects', 'messages', 'today', 'xp', 'prefs', 'me', 'demoTowns'] as const;
+const DEMO_FIELDS = ['townId', 'townName', 'townOwnerId', 'friends', 'projects', 'townProjects', 'messages', 'today', 'xp', 'prefs', 'me', 'demoTowns', 'layout'] as const;
 
 function readDemo(): Partial<DemoSave> | null {
   try {
@@ -177,9 +190,9 @@ function demoTownList(s: Pick<AppState, 'townId' | 'townName' | 'townOwnerId' | 
   ];
 }
 
-/** 대상 마을에서 비어 있는 첫 부지 */
-function freePlot(used: string[]): string | null {
-  return EMPTY_PLOTS.find((p) => !used.includes(p.id))?.id ?? null;
+/** 대상 마을에서 비어 있는 첫 부지(공용 건물 자리 제외) */
+function freePlot(used: string[], layout: TownLayout = DEFAULT_LAYOUT): string | null {
+  return firstFreeLot(used, layout);
 }
 
 let reloadTimer: ReturnType<typeof setTimeout> | null = null;
@@ -228,6 +241,7 @@ export const useApp = create<AppState>((set, get) => {
     toast: null,
     lastGrowth: null,
     view: null,
+    moving: null,
 
     boot: ({ mode, meId }) => {
       if (get().booted) return;
@@ -271,6 +285,7 @@ export const useApp = create<AppState>((set, get) => {
           townName: snap.townName,
           townOwnerId: snap.ownerId,
           towns: snap.towns,
+          layout: snap.layout,
           me: snap.me,
           friends: snap.friends.map((f) => {
             const s = status.get(f.id);
@@ -572,7 +587,7 @@ export const useApp = create<AppState>((set, get) => {
       }
       const target = s.demoTowns[townId];
       if (!target) return;
-      const stash: TownData = { id: s.townId!, name: s.townName, ownerId: s.townOwnerId ?? ME, friends: s.friends, projects: s.projects, townProjects: s.townProjects, messages: s.messages };
+      const stash: TownData = { id: s.townId!, name: s.townName, ownerId: s.townOwnerId ?? ME, friends: s.friends, projects: s.projects, townProjects: s.townProjects, messages: s.messages, layout: s.layout };
       const rest = { ...s.demoTowns, [stash.id]: stash };
       delete rest[townId];
       set({
@@ -583,6 +598,8 @@ export const useApp = create<AppState>((set, get) => {
         projects: target.projects,
         townProjects: target.townProjects,
         messages: target.messages,
+        layout: target.layout ?? { ...DEFAULT_LAYOUT },
+        moving: null,
         demoTowns: rest,
         selectedId: null,
         view: null,
@@ -617,8 +634,8 @@ export const useApp = create<AppState>((set, get) => {
       const targetName = s.towns.find((t) => t.id === townId)?.name ?? '그 마을';
       if (s.mode === 'live') {
         try {
-          const used = await live.usedPlots(townId);
-          const plot = p.hallAt ? '' : freePlot(used);
+          const { used, layout } = await live.usedPlots(townId);
+          const plot = p.hallAt ? '' : freePlot(used, layout);
           if (plot === null) {
             get().notify(`‘${targetName}’에 빈 부지가 없어요`, 'warn');
             return;
@@ -634,7 +651,7 @@ export const useApp = create<AppState>((set, get) => {
       const target = s.demoTowns[townId];
       if (!target) return;
       const used = [...target.projects, ...target.townProjects].filter((x) => edit.onMap(x)).map((x) => x.plotId);
-      const plot = p.hallAt ? '' : freePlot(used);
+      const plot = p.hallAt ? '' : freePlot(used, target.layout);
       if (plot === null) {
         get().notify(`‘${target.name}’에 빈 부지가 없어요`, 'warn');
         return;
@@ -643,6 +660,33 @@ export const useApp = create<AppState>((set, get) => {
       set({ demoTowns: { ...s.demoTowns, [townId]: { ...target, projects: [...target.projects, copy] } } });
       syncTowns();
       get().notify(`‘${p.title}’를 ‘${target.name}’에 복사했어요`, 'good');
+    },
+
+    // ───────── 건물 옮기기 ─────────
+    startMove: (t) => {
+      if (t.kind === 'project' && !get().projects.some((p) => p.id === t.id && edit.onMap(p))) return;
+      set({ moving: t, selectedId: null, view: null, listMode: false });
+    },
+    cancelMove: () => set({ moving: null }),
+    moveTo: async (plotId) => {
+      const s = get();
+      const m = s.moving;
+      if (!m) return;
+      const used = new Set(mapProjects(s).map((p) => p.plotId));
+      if (used.has(plotId) || Object.values(s.layout).includes(plotId)) {
+        get().notify('이미 건물이 있는 부지예요', 'warn');
+        return;
+      }
+      set({ moving: null });
+      if (m.kind === 'project') {
+        set({ projects: updateProject(s.projects, m.id, (p) => ({ ...p, plotId })) });
+        get().notify(`‘${m.title}’를 옮겼어요`, 'good');
+        remote(() => live.moveProject(m.id, plotId));
+      } else {
+        set({ layout: { ...s.layout, [m.place]: plotId } });
+        get().notify(`${PLACE_LABEL[m.place]}을 옮겼어요`, 'good');
+        remote(() => live.movePlace(s.townId!, m.place, plotId));
+      }
     },
 
     saveAvatar: (a) => {
@@ -671,6 +715,12 @@ export const useApp = create<AppState>((set, get) => {
       syncTowns();
     },
   };
+});
+
+// 지도 모듈(길찾기·빈 부지 판정)도 늘 같은 배치를 보게 한다
+applyMapLayout(useApp.getState().layout);
+useApp.subscribe((s, prev) => {
+  if (s.layout !== prev.layout) applyMapLayout(s.layout);
 });
 
 /** 마을 지도에 서 있는 모든 프로젝트(내 것 + 친구 것) */

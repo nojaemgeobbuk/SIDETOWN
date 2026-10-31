@@ -26,6 +26,7 @@ Node.js 20.9 이상이 필요해요.
    1. `20261027000000_init.sql` — 표·RLS·RPC
    2. `20261029000000_plan_towns.sql` — v1.3(편집·여러 마을·철거·명예의 전당·외형)
    3. `20261101000000_fixed_land.sql` — v1.6(부지 9칸. v1.5 땅 넓히기를 실행했었다면 정리도 함께)
+   4. `20261102000000_move_buildings.sql` — v1.7(건물 옮기기)
    이미 앞 번호를 실행했다면 새 파일만 실행하면 돼요.
    (Supabase CLI를 쓰면 `supabase link` 후 `supabase db push`)
 3. **로그인 주소 등록** — Authentication → URL Configuration
@@ -35,7 +36,7 @@ Node.js 20.9 이상이 필요해요.
 5. **환경 변수** — `.env.example`을 `.env.local`로 복사해 채우기
    - `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (Project Settings → API Keys의 publishable 키. secret/service_role 키는 넣지 마세요)
    - `GEMINI_API_KEY` (Google AI Studio). 없으면 AI 초안 대신 기본 템플릿
-   - `NEXT_PUBLIC_ADSENSE_CLIENT` (선택, `ca-pub-…`). 넣으면 AdSense 코드와 `/ads.txt`가 생기고, 광고 종류·위치는 AdSense **자동 광고** 설정에서 정해요
+   - `NEXT_PUBLIC_ADSENSE_CLIENT` (선택, `ca-pub-…` 또는 `pub-…`·숫자만도 됨). 넣으면 AdSense 코드와 `/ads.txt`가 생기고, 광고 종류·위치는 AdSense **자동 광고** 설정에서 정해요
 6. **배포** — Vercel에서 이 저장소를 가져오고 같은 환경 변수를 넣으면 끝.
 
 처음 로그인하면 닉네임·마을 이름을 정하고, 카페 패널의 **초대 링크 만들기**로 친구(최대 8명)를 부를 수 있어요.
@@ -49,6 +50,12 @@ Node.js 20.9 이상이 필요해요.
 - 쪽지는 1분 5회·하루 100회, 200자. 받는 사람의 프로젝트에만 응원을 붙일 수 있어요.
 - AI 초안은 하루 20회(`ai_usage`). 응답은 zod 스키마를 통과한 것만 쓰고, 날짜는 앱이 계산해요.
 - `supabase/tests/db.test.ts`가 이 규칙들을 실제 Postgres(PGlite)에서 확인해요.
+
+## v1.7 건물 옮기기
+
+- 내 프로젝트 패널 위쪽의 **옮기기** → 마을의 빈 부지가 ‘여기로 옮기기’로 바뀌고, 누르면 그 자리로 옮겨요(Esc·취소로 그만두기).
+- 공용 카페·내 집·명예의 전당도 각 패널의 **옮기기**로 빈 부지에 옮길 수 있어요(마을 주민 누구나). 원래 자리는 빈 부지가 되어 프로젝트를 지을 수 있어요. 부지는 모두 12칸.
+- 서버가 겹침을 막아요: 이미 건물이 있는 부지, 공용 건물이 선 부지, 철거 중·명예의 전당 건물은 옮길 수 없고, 친구 프로젝트는 주인만 옮겨요.
 
 ## v1.6 넓어진 마을 · 꾸밈 · 광고
 

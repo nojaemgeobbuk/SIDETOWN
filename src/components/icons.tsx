@@ -24,4 +24,5 @@ export const IconPin = (p: SVGProps<SVGSVGElement>) => (<svg {...base({ width: 1
 export const IconChevron = (p: SVGProps<SVGSVGElement>) => (<svg {...base({ width: 16, height: 16, strokeWidth: 2, ...p })}><path d="M9 6l6 6-6 6" /></svg>);
 export const IconDown = (p: SVGProps<SVGSVGElement>) => (<svg {...base({ width: 14, height: 14, strokeWidth: 2, ...p })}><path d="M6 9l6 6 6-6" /></svg>);
 export const IconCopy = (p: SVGProps<SVGSVGElement>) => (<svg {...base({ width: 16, height: 16, ...p })}><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3" /></svg>);
+export const IconMove = (p: SVGProps<SVGSVGElement>) => (<svg {...base({ width: 16, height: 16, strokeWidth: 2, ...p })}><path d="M12 3v18M3 12h18M12 3l-3 3M12 3l3 3M12 21l-3-3M12 21l3-3M3 12l3-3M3 12l3 3M21 12l-3-3M21 12l-3 3" /></svg>);
 export const IconGrid = (p: SVGProps<SVGSVGElement>) => (<svg {...base(p)}><rect x="4" y="4" width="7" height="7" rx="1" /><rect x="13" y="4" width="7" height="7" rx="1" /><rect x="4" y="13" width="7" height="7" rx="1" /><rect x="13" y="13" width="7" height="7" rx="1" /></svg>);

@@ -14,6 +14,8 @@ export default function TownCanvas({ panelOpen }: { panelOpen: boolean }) {
   const projects = useApp((s) => s.projects);
   const townProjects = useApp((s) => s.townProjects);
   const friends = useApp((s) => s.friends);
+  const layout = useApp((s) => s.layout);
+  const moving = useApp((s) => s.moving);
   const avatar = useApp((s) => s.me.avatar);
   const focusOpen = useFocus((s) => s.open);
   const focusRunning = useFocus((s) => s.timer.endsAt !== null);
@@ -38,11 +40,14 @@ export default function TownCanvas({ panelOpen }: { panelOpen: boolean }) {
           onSelectStatic: (id) => !useFocus.getState().open && useApp.getState().openView(id === 'home' ? { kind: 'home' } : id === 'hall' ? { kind: 'hall' } : { kind: 'cafe' }),
           onEmptyPlot: (plotId) => !useFocus.getState().open && useApp.getState().openView({ kind: 'new', plotId }),
           onSelectFriend: (friendId) => !useFocus.getState().open && useApp.getState().openView({ kind: 'inbox', friendId }),
+          onMoveTo: (plotId) => void useApp.getState().moveTo(plotId),
           onBackgroundTap: () => {
             useApp.getState().select(null);
           },
         });
         renderer.current = r;
+        // 데모 마을 검증(자동 화면 테스트)용
+        if (useApp.getState().mode === 'demo') (window as unknown as { __town?: unknown }).__town = r;
         await r.init();
         if (!alive) {
           r.destroy();
@@ -82,6 +87,8 @@ export default function TownCanvas({ panelOpen }: { panelOpen: boolean }) {
     const r = renderer.current;
     if (!r || !ready.current) return;
     const s = useApp.getState();
+    // 공용 건물 자리를 먼저 반영해야 빈 부지·길이 맞는다
+    r.setLayout(s.layout);
     const vms: BuildingVM[] = mapProjects(s).map((p) => ({
       projectId: p.id,
       plotId: p.plotId,
@@ -110,7 +117,13 @@ export default function TownCanvas({ panelOpen }: { panelOpen: boolean }) {
 
   useEffect(() => {
     sync();
-  }, [projects, townProjects]);
+  }, [projects, townProjects, layout]);
+
+  // 건물 옮기기 모드
+  useEffect(() => {
+    if (!ready.current) return;
+    renderer.current?.setMoveMode(moving ? { from: moving.kind === 'project' ? moving.id : moving.place } : null);
+  }, [moving]);
 
   useEffect(() => {
     syncFriends();

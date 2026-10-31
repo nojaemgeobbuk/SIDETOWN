@@ -57,16 +57,45 @@ export const EMPTY_PLOTS: Plot[] = [
   // 남쪽 들판
   { id: 'plot-s1a', x: 2, y: 26, w: 4, h: 4, entrance: { x: 6, y: 28 } },
   { id: 'plot-s1b', x: 10, y: 26, w: 4, h: 4, entrance: { x: 9, y: 28 } },
+  // v1.7: 공용 건물(카페·내 집·명예의 전당)의 처음 자리. 건물을 옮기면 빈 부지가 되어 프로젝트도 지을 수 있다
+  { id: 'lot-cafe', x: 16, y: 10, w: 4, h: 4, entrance: { x: 15, y: 12 } },
+  { id: 'lot-home', x: 11, y: 17, w: 3, h: 3, entrance: { x: 14, y: 18 } },
+  { id: 'lot-hall', x: 20, y: 9, w: 3, h: 3, entrance: { x: 21, y: 12 } },
 ];
+
+export type PlaceKind = 'cafe' | 'home' | 'hall';
+/** 공용 건물이 어느 부지에 있는지 */
+export type TownLayout = Record<PlaceKind, string>;
+export const DEFAULT_LAYOUT: TownLayout = { cafe: 'lot-cafe', home: 'lot-home', hall: 'lot-hall' };
+export const PLACE_LABEL: Record<PlaceKind, string> = { cafe: '공용 카페', home: '내 집', hall: '명예의 전당' };
 
 /** 고정 프로젝트 부지(지금은 없음) */
 export const PROJECT_PLOTS: Plot[] = [];
 
-export const STATIC_BUILDINGS: StaticBuilding[] = [
-  { id: 'cafe', kind: 'cafe', label: '공용 카페', plot: { id: 'cafe', x: 16, y: 10, w: 4, h: 4, entrance: { x: 15, y: 12 } } },
-  { id: 'home', kind: 'home', label: '내 집', plot: { id: 'home', x: 11, y: 17, w: 3, h: 3, entrance: { x: 14, y: 18 } } },
-  { id: 'hall', kind: 'hall', label: '명예의 전당', plot: { id: 'hall', x: 20, y: 9, w: 3, h: 3, entrance: { x: 21, y: 12 } } },
-];
+const lot = (id: string) => EMPTY_PLOTS.find((p) => p.id === id)!;
+/** plot은 지금 서 있는 부지(setLayout이 바꾼다). 길찾기·친구·집중 모드가 모두 이 값을 본다 */
+export const STATIC_BUILDINGS: StaticBuilding[] = (['cafe', 'home', 'hall'] as const).map((k) => ({ id: k, kind: k, label: PLACE_LABEL[k], plot: lot(DEFAULT_LAYOUT[k]) }));
+
+/** 공용 건물 배치를 바꾼다. 잘못된 값·겹치는 값은 처음 자리로 */
+export function setLayout(layout: Partial<TownLayout> | null | undefined) {
+  const used = new Set<string>();
+  for (const s of STATIC_BUILDINGS) {
+    const want = layout?.[s.kind];
+    const id = want && EMPTY_PLOTS.some((p) => p.id === want) && !used.has(want) ? want : DEFAULT_LAYOUT[s.kind];
+    used.add(id);
+    s.plot = lot(id);
+  }
+}
+/** 공용 건물이 서 있는 부지 */
+export function placeAt(plotId: string): PlaceKind | null {
+  return STATIC_BUILDINGS.find((s) => s.plot.id === plotId)?.kind ?? null;
+}
+/** 프로젝트가 쓰는 부지(used)와 공용 건물 자리를 뺀 첫 빈 부지. 처음 자리(lot-)는 뒤로 미룬다 */
+export function firstFreeLot(used: Iterable<string>, layout: TownLayout = DEFAULT_LAYOUT): string | null {
+  const taken = new Set([...used, ...Object.values(layout)]);
+  const order = [...EMPTY_PLOTS.filter((p) => p.id.startsWith('plot-')), ...EMPTY_PLOTS.filter((p) => p.id.startsWith('lot-'))];
+  return order.find((p) => !taken.has(p.id))?.id ?? null;
+}
 
 export const PROPS: Prop[] = [
   // ── 광장·기본 구역 ──
@@ -147,7 +176,7 @@ export const FLAT_DECOR: Prop['kind'][] = ['lily', 'dock', 'boat', 'picnic'];
 const inRect = (x: number, y: number, r: { x: number; y: number; w: number; h: number }) =>
   x >= r.x && y >= r.y && x < r.x + r.w && y < r.y + r.h;
 
-const ALL_PLOTS = [...PROJECT_PLOTS, ...EMPTY_PLOTS, ...STATIC_BUILDINGS.map((s) => s.plot)];
+const ALL_PLOTS = [...PROJECT_PLOTS, ...EMPTY_PLOTS];
 
 /** 호수: 기본 구역 오른쪽 아래에서 동·남쪽 땅 사이까지 */
 const isLake = (x: number, y: number) => (x >= 18 && x <= 26 && y >= 17 && y <= 27 && !(x === 26 && (y === 17 || y === 27)) && !(x === 18 && y === 27)) || (x >= 20 && x <= 25 && y >= 15 && y <= 16);
@@ -173,7 +202,7 @@ export function setOccupiedPlots(ids: string[]) {
   for (const id of ids) if (EMPTY_PLOTS.some((p) => p.id === id)) occupiedEmpty.add(id);
 }
 export function isPlotFree(id: string) {
-  return EMPTY_PLOTS.some((p) => p.id === id) && !occupiedEmpty.has(id);
+  return EMPTY_PLOTS.some((p) => p.id === id) && !occupiedEmpty.has(id) && !placeAt(id);
 }
 
 function blockedByObject(x: number, y: number): boolean {

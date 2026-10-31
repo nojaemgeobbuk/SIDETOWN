@@ -64,6 +64,8 @@ export default function LiveSync({ mode, meId }: { mode: Mode; meId?: string; pr
         if (m.recipient_id === meId) s.notify(`${name}님이 쪽지를 남겼어요`, 'info');
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'projects' }, reloadSoon)
+      // 친구가 공용 건물을 옮겼을 때
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'towns' }, reloadSoon)
       // 친구가 땅을 넓히면 바로 보이게
       .subscribe();
 

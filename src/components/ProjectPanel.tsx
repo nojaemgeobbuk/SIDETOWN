@@ -15,7 +15,7 @@ import type { Health, Project, Visibility } from '@/lib/types';
 import { useApp } from '@/store/useApp';
 import { friendName, relTime } from '@/lib/social';
 import { STAGE_NAMES } from '@/lib/templates';
-import { IconCalendar, IconClose, IconCopy, IconEdit, IconFlag, IconPlay, IconPlus, IconTrophy } from './icons';
+import { IconCalendar, IconClose, IconCopy, IconEdit, IconFlag, IconPlay, IconMove, IconPlus, IconTrophy } from './icons';
 import Drawer, { QuestQuickAdd } from './plan/Drawer';
 import type { Selection } from './plan/shared';
 import Voyage from './Voyage';
@@ -124,6 +124,9 @@ function PanelBody({ project: p, onClose }: { project: Project; onClose: () => v
           <span className="chip" style={{ color: hColor, borderColor: hColor }}>{hLabel}</span>
           <span className="muted" style={{ fontSize: 12 }}>{KIND[p.building]} · {stage}단계 {STAGE_NAMES[stage]}</span>
           <div style={{ flex: 1 }} />
+          {(p.status === 'active' || p.status === 'paused') && !p.hallAt && p.plotId && (
+            <button className="btn btn-sm" style={{ height: 36, padding: '0 10px' }} onClick={() => useApp.getState().startMove({ kind: 'project', id: p.id, title: p.title })} title="빈 부지로 건물 옮기기"><IconMove /> 옮기기</button>
+          )}
           <Link href={`/plan?project=${encodeURIComponent(p.id)}&view=timeline`} className="icon-btn" style={{ width: 36, height: 36 }} aria-label="계획 화면에서 열기" title="계획 화면에서 열기"><IconCalendar width={18} height={18} /></Link>
           <button className="icon-btn" style={{ width: 36, height: 36 }} aria-label="패널 닫기" onClick={onClose}><IconClose width={18} height={18} /></button>
         </div>

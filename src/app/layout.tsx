@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
+import { adsenseClient } from '@/lib/adsense';
 
 export const metadata: Metadata = {
   title: 'SideTown — 사이드 프로젝트 마을',
@@ -13,8 +14,7 @@ export const viewport: Viewport = {
 };
 
 /** AdSense 게시자 ID(ca-pub-…). 넣으면 AdSense 자동 광고(앵커 등 플로팅 광고)가 켜진다 */
-const ADSENSE_CLIENT = process.env.NEXT_PUBLIC_ADSENSE_CLIENT?.trim() ?? '';
-const adsenseOk = /^ca-pub-\d{10,20}$/.test(ADSENSE_CLIENT);
+const ADSENSE_CLIENT = adsenseClient();
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -28,7 +28,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           rel="stylesheet"
           href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Silkscreen&display=swap"
         />
-        {adsenseOk && (
+        {ADSENSE_CLIENT && (
           // AdSense가 사이트 확인·자동 광고에 쓰는 코드. 어떤 광고를 어디에 띄울지는 AdSense ‘자동 광고’ 설정에서 정한다
           <script async src={`https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${ADSENSE_CLIENT}`} crossOrigin="anonymous" />
         )}

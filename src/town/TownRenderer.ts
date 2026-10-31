@@ -28,7 +28,9 @@ import {
   PROPS,
   setOccupiedPlots,
   STATIC_BUILDINGS,
+  setLayout as setMapLayout,
   type DecorKind,
+  type TownLayout,
   type Plot,
   type Prop,
 } from './map';
@@ -60,6 +62,8 @@ export interface TownCallbacks {
   onEmptyPlot: (plotId: string) => void;
   onSelectFriend: (friendId: string) => void;
   onBackgroundTap: () => void;
+  /** 건물 옮기기 중에 빈 부지를 눌렀을 때 */
+  onMoveTo?: (plotId: string) => void;
 }
 
 const ASSET_BASE = '/assets';
@@ -167,6 +171,12 @@ export class TownRenderer {
   private world = new Container();
   private ground = new Container();
   private tiles = new Container();
+  /** 공용 건물 그림·이름표 */
+  private statics = new Map<string, { sp: Sprite; label: Container }>();
+  /** 빈 부지 안내 글자(‘+ 새 프로젝트’ ↔ ‘여기로 옮기기’) */
+  private plotTexts = new Map<string, { t: Text; g: Graphics }>();
+  /** 건물 옮기기 중이면 옮기는 대상 부지 id */
+  private moving: { from: string } | null = null;
   /** 움직이는 꾸밈(모닥불·배) */
   private decorTicks: ((t: number) => void)[] = [];
   private objects = new Container();
@@ -246,6 +256,9 @@ export class TownRenderer {
     if (this.destroyed) return;
 
     this.objects.sortableChildren = true;
+    // 이름표·바닥 그림이 건물·빈 부지 누르기를 가로채지 않게
+    this.labels.eventMode = 'none';
+    this.tiles.eventMode = 'none';
     this.world.addChild(this.ground, this.objects, this.labels);
     this.app.stage.addChild(this.world);
 
@@ -358,18 +371,30 @@ export class TownRenderer {
       plus.resolution = 2;
       plus.anchor.set(0.5);
       plus.position.set(c.x, c.y);
+      // 글자·강조는 누름을 막지 않게(스테이지가 static이라 자식도 모두 맞힘 검사를 받는다)
+      plus.eventMode = 'none';
       g.eventMode = 'static';
       g.cursor = 'pointer';
       g.on('pointertap', (e: FederatedPointerEvent) => {
         if (this.dragging) return;
         this.consumed = true;
         e.stopPropagation();
+        if (this.moving) {
+          this.cb.onMoveTo?.(p.id);
+          return;
+        }
         this.walkTo(p.entrance);
         this.cb.onEmptyPlot(p.id);
       });
-      holder.addChild(g, plus);
+      const hl = new Graphics();
+      this.diamond(hl, p.x, p.y, p.w, p.h).fill({ color: COLORS.amber, alpha: 0.26 });
+      hl.visible = false;
+      hl.eventMode = 'none';
+      holder.addChild(hl, g, plus);
+      holder.visible = isPlotFree(p.id);
       this.ground.addChild(holder);
       this.emptyPlotNodes.set(p.id, holder);
+      this.plotTexts.set(p.id, { t: plus, g: hl });
     }
   }
 
@@ -383,16 +408,25 @@ export class TownRenderer {
     sprite.zIndex = plot.x + plot.w + plot.y + plot.h;
   }
 
+  /** 공용 건물 그림은 원래 크기(카페 4칸, 집·전당 3칸)로, 부지 가운데에 세운다 */
+  private placeStatic(kind: string, sp: Sprite, plot: Plot) {
+    const native = kind === 'cafe' ? 4 : 3;
+    const n = Math.min(native, plot.w, plot.h);
+    const fp = { x: plot.x + (plot.w - n) / 2, y: plot.y + (plot.h - n) / 2, w: n, h: n };
+    this.placeSprite(sp, fp, kind === 'home' ? 0.95 : kind === 'hall' ? 1.0 : 1.02);
+  }
+
   private drawStatic() {
     for (const s of STATIC_BUILDINGS) {
       const sp = new Sprite(this.tex[s.kind]);
-      this.placeSprite(sp, s.plot, s.kind === 'home' ? 0.95 : s.kind === 'hall' ? 1.0 : 1.02);
+      this.placeStatic(s.kind, sp, s.plot);
       sp.eventMode = 'static';
       sp.cursor = 'pointer';
       sp.on('pointertap', (e: FederatedPointerEvent) => {
         if (this.dragging) return;
         this.consumed = true;
         e.stopPropagation();
+        if (this.moving) return;
         this.walkTo(s.plot.entrance);
         this.cb.onSelectStatic(s.id, s.label);
       });
@@ -400,6 +434,42 @@ export class TownRenderer {
       const lbl = this.makeLabel(s.label, false);
       lbl.c.position.set(sp.x, sp.y - sp.height + 6);
       this.labels.addChild(lbl.c);
+      this.statics.set(s.kind, { sp, label: lbl.c });
+    }
+  }
+
+  /** 공용 건물 배치를 반영(옮기기 결과·친구가 옮긴 결과) */
+  setLayout(layout: Partial<TownLayout> | null | undefined) {
+    if (!this.app.renderer || this.destroyed) return;
+    setMapLayout(layout);
+    for (const s of STATIC_BUILDINGS) {
+      const n = this.statics.get(s.kind);
+      if (!n) continue;
+      this.placeStatic(s.kind, n.sp, s.plot);
+      n.label.position.set(n.sp.x, n.sp.y - n.sp.height + 6);
+    }
+    for (const [id, node] of this.emptyPlotNodes) node.visible = isPlotFree(id);
+    this.refreshMoveTexts();
+  }
+
+  /** 건물 옮기기: 켜면 빈 부지가 ‘여기로 옮기기’로 바뀌고 누르면 onMoveTo */
+  setMoveMode(m: { from: string } | null) {
+    if (!this.app.renderer || this.destroyed) return;
+    this.moving = m;
+    this.refreshMoveTexts();
+    // 옮길 자리가 다 보이게 마을 전체로
+    if (m) {
+      this.panelOffset = 0;
+      this.camTarget = null;
+      this.fitInitial();
+    }
+  }
+
+  private refreshMoveTexts() {
+    for (const [, { t, g }] of this.plotTexts) {
+      t.text = this.moving ? '여기로 옮기기' : '+ 새 프로젝트';
+      t.style.fontSize = this.moving ? 15 : 13;
+      g.visible = !!this.moving;
     }
   }
 
@@ -412,6 +482,7 @@ export class TownRenderer {
     const h = p.h ?? 1;
     if (!(p.kind in SPRITE_PROP_H)) {
       const d = makeDecor(p as Prop & { kind: DecorKind });
+      d.node.eventMode = 'none';
       if (FLAT_DECOR.includes(p.kind)) this.ground.addChild(d.node);
       else {
         d.node.zIndex = p.x + w + p.y + h - 0.2;
@@ -482,6 +553,14 @@ export class TownRenderer {
       const plot = plotById(vm.plotId);
       if (!plot) continue;
       let node = this.buildings.get(vm.projectId);
+      // 다른 부지로 옮겼으면 새로 세운다
+      if (node && node.plot.id !== plot.id) {
+        node.root.destroy({ children: true });
+        node.label.destroy({ children: true });
+        node.highlight.destroy();
+        this.buildings.delete(vm.projectId);
+        node = undefined;
+      }
       const { tex, needsOverlay } = this.textureFor(vm);
       if (!node) {
         const root = new Container();
@@ -499,6 +578,7 @@ export class TownRenderer {
           if (this.dragging) return;
           this.consumed = true;
           e.stopPropagation();
+          if (this.moving) return;
           this.cb.onSelectProject(vm.projectId);
         });
         const overlay = new Container();

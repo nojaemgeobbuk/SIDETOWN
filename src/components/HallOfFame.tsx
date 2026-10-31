@@ -6,6 +6,7 @@ import { BUILDING_INFO } from '@/lib/templates';
 import type { Project } from '@/lib/types';
 import { useApp } from '@/store/useApp';
 import { IconClose, IconTrophy } from './icons';
+import MovePlaceButton from './MovePlaceButton';
 
 const ymd = (iso?: string) => (iso ? iso.slice(0, 10).replace(/-/g, '.') : '');
 
@@ -32,6 +33,7 @@ export default function HallOfFame({ onClose }: { onClose: () => void }) {
           <span className="chip" style={{ color: 'var(--amber)', borderColor: 'rgba(244,176,62,0.5)' }}>공용</span>
           <span className="muted" style={{ fontSize: 12 }}>{townName} · 완공 {items.length}</span>
           <div style={{ flex: 1 }} />
+          <MovePlaceButton place="hall" />
           <button className="icon-btn" style={{ width: 36, height: 36 }} aria-label="패널 닫기" onClick={onClose}><IconClose width={18} height={18} /></button>
         </div>
         <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, letterSpacing: '-0.4px', display: 'flex', alignItems: 'center', gap: 8 }}><IconTrophy /> 명예의 전당</h1>

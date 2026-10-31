@@ -8,6 +8,8 @@ import type { BuildingType } from '@/lib/types';
 import type { DraftResponse } from '@/lib/plan-draft';
 import { useApp, type View } from '@/store/useApp';
 import { IconClose } from './icons';
+import type { PlaceKind } from '@/town/map';
+import MovePlaceButton from './MovePlaceButton';
 import AvatarEditor from './AvatarEditor';
 import AvatarImg from './AvatarImg';
 import HallOfFame from './HallOfFame';
@@ -27,13 +29,14 @@ export default function PlacePanel({ view }: { view: View }) {
   );
 }
 
-function Head({ tag, title, sub, onClose }: { tag: string; title: string; sub?: string; onClose: () => void }) {
+function Head({ tag, title, sub, onClose, place }: { tag: string; title: string; sub?: string; onClose: () => void; place?: PlaceKind }) {
   return (
     <div className="panel-head">
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <span className="chip" style={{ color: 'var(--amber)', borderColor: 'rgba(244,176,62,0.5)' }}>{tag}</span>
         {sub && <span className="muted" style={{ fontSize: 12 }}>{sub}</span>}
         <div style={{ flex: 1 }} />
+        {place && <MovePlaceButton place={place} />}
         <button className="icon-btn" style={{ width: 36, height: 36 }} aria-label="패널 닫기" onClick={onClose}><IconClose width={18} height={18} /></button>
       </div>
       <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, letterSpacing: '-0.4px' }}>{title}</h1>
@@ -74,7 +77,7 @@ function Cafe({ onClose }: { onClose: () => void }) {
   ];
   return (
     <>
-      <Head tag="공용" title="공용 카페" sub="마을 게시판 · 누구나 이용" onClose={onClose} />
+      <Head tag="공용" title="공용 카페" sub="마을 게시판 · 누구나 이용" onClose={onClose} place="cafe" />
       <div className="panel-scroll">
         <section aria-label="지금 마을" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <span style={{ fontSize: 13, fontWeight: 600 }}>지금 마을 <span className="mono muted" style={{ fontSize: 11, fontWeight: 400 }}>{friends.length + 1}/8명</span></span>
@@ -146,7 +149,7 @@ function Home({ onClose, initialTab }: { onClose: () => void; initialTab: 'room'
   const shelf = projects.flatMap((p) => p.milestones.filter((m) => m.status === 'completed').map((m) => ({ p, m })));
   return (
     <>
-      <Head tag="내 집" title={mode === 'live' ? `${me.name}의 집` : '새벽작업실'} sub="캐릭터 · 진열장" onClose={onClose} />
+      <Head tag="내 집" title={mode === 'live' ? `${me.name}의 집` : '새벽작업실'} sub="캐릭터 · 진열장" onClose={onClose} place="home" />
       <div style={{ padding: '0 20px' }}>
         <div role="tablist" aria-label="내 집" className="tabs">
           <button role="tab" aria-selected={tab === 'room'} onClick={() => setTab('room')}>방</button>
