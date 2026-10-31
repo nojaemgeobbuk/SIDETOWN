@@ -65,7 +65,6 @@ export default function LiveSync({ mode, meId }: { mode: Mode; meId?: string; pr
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'projects' }, reloadSoon)
       // 친구가 땅을 넓히면 바로 보이게
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'town_expansions' }, reloadSoon)
       .subscribe();
 
     const pres = sb.channel(`presence:${townId}`, { config: { presence: { key: meId } } });

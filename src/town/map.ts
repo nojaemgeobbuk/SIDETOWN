@@ -1,61 +1,13 @@
 import type { BuildingType } from '@/lib/types';
 
-/** 단계 0 검증 맵. 기획서 7.2의 64×64는 확장 시안, 여기서는 24×24 한 구역으로 검증한다. */
-export const MAP_W = 24;
-export const MAP_H = 24;
+/**
+ * 마을 섬. v1.6부터 땅 넓히기 대신 처음부터 32×32로 넓혔다.
+ * 기본 구역(0~23) 동쪽·남쪽에 띠 모양 땅이 붙어 있고, 프로젝트 부지는 모두 9칸이다.
+ */
+export const MAP_W = 32;
+export const MAP_H = 32;
 
 export type Ground = 'grass' | 'paving' | 'water' | 'void';
-
-/**
- * 땅 넓히기(v1.5): 기본 섬 24×24 옆에 프로젝트 부지 2칸짜리 구역을 정해진 순서로 붙인다.
- * 동쪽(e)은 가로 큰길(y 7·8)을, 남쪽(s)은 세로 큰길(x 8)을 이어 받는다. 세계는 최대 40×40.
- */
-export const WORLD_W = 40;
-export const WORLD_H = 40;
-
-export interface District {
-  id: 'e1' | 's1' | 'e2' | 's2';
-  label: string;
-  area: { x: number; y: number; w: number; h: number };
-  road: 'h' | 'v';
-  plots: Plot[];
-  /** 섬 가장자리의 ‘+’ 버튼 자리(아직 열리지 않은 땅 쪽) */
-  anchor: { x: number; y: number };
-}
-
-const eastDistrict = (id: 'e1' | 'e2', x0: number, label: string): District => ({
-  id,
-  label,
-  area: { x: x0, y: 0, w: 8, h: 14 },
-  road: 'h',
-  plots: [
-    { id: `plot-${id}a`, x: x0 + 1, y: 2, w: 4, h: 4, entrance: { x: x0 + 3, y: 6 } },
-    { id: `plot-${id}b`, x: x0 + 1, y: 10, w: 4, h: 4, entrance: { x: x0 + 3, y: 9 } },
-  ],
-  anchor: { x: x0 + 1, y: 7.5 },
-});
-const southDistrict = (id: 's1' | 's2', y0: number, label: string): District => ({
-  id,
-  label,
-  area: { x: 0, y: y0, w: 14, h: 8 },
-  road: 'v',
-  plots: [
-    { id: `plot-${id}a`, x: 2, y: y0 + 2, w: 4, h: 4, entrance: { x: 6, y: y0 + 4 } },
-    { id: `plot-${id}b`, x: 10, y: y0 + 2, w: 4, h: 4, entrance: { x: 9, y: y0 + 4 } },
-  ],
-  anchor: { x: 8.5, y: y0 + 1 },
-});
-
-/** 열리는 순서 */
-export const DISTRICTS: District[] = [
-  eastDistrict('e1', 24, '동쪽 언덕'),
-  southDistrict('s1', 24, '남쪽 들판'),
-  eastDistrict('e2', 32, '먼 동쪽'),
-  southDistrict('s2', 32, '먼 남쪽'),
-];
-
-let unlockedDistricts: District[] = [];
-const BASE_PLOT_IDS = ['plot-a', 'plot-b', 'plot-c', 'plot-d', 'plot-e'];
 
 export interface Plot {
   id: string;
@@ -74,8 +26,17 @@ export interface StaticBuilding {
   plot: Plot;
 }
 
+/** 그림 파일로 그리는 소품 */
+export type SpriteProp = 'tree' | 'lamp' | 'bench' | 'planter' | 'tree-autumn' | 'tree-blossom' | 'bush';
+/** 코드로 그리는 꾸밈 요소(복셀) */
+export type DecorKind =
+  | 'flowers' | 'rock' | 'fence' | 'crates' | 'haybale' | 'well' | 'campfire' | 'signpost'
+  | 'mailbox' | 'boat' | 'dock' | 'lily' | 'stall' | 'picnic' | 'pumpkins';
+
 export interface Prop {
-  kind: 'tree' | 'lamp' | 'bench' | 'planter';
+  kind: SpriteProp | DecorKind;
+  /** 색 조합 등 변형 번호 */
+  v?: number;
   x: number;
   y: number;
   w?: number;
@@ -90,31 +51,13 @@ export const EMPTY_PLOTS: Plot[] = [
   { id: 'plot-c', x: 12, y: 2, w: 4, h: 4, entrance: { x: 16, y: 4 } },
   { id: 'plot-d', x: 3, y: 17, w: 4, h: 4, entrance: { x: 7, y: 19 } },
   { id: 'plot-e', x: 18, y: 2, w: 4, h: 4, entrance: { x: 17, y: 6 } },
+  // 동쪽 언덕(예전 땅 넓히기 1구역과 같은 id라 이미 지은 건물이 그대로 남는다)
+  { id: 'plot-e1a', x: 25, y: 2, w: 4, h: 4, entrance: { x: 27, y: 6 } },
+  { id: 'plot-e1b', x: 25, y: 10, w: 4, h: 4, entrance: { x: 27, y: 9 } },
+  // 남쪽 들판
+  { id: 'plot-s1a', x: 2, y: 26, w: 4, h: 4, entrance: { x: 6, y: 28 } },
+  { id: 'plot-s1b', x: 10, y: 26, w: 4, h: 4, entrance: { x: 9, y: 28 } },
 ];
-/** 열린 구역의 부지까지 포함하도록 setExpansions가 이 배열을 바꾼다 */
-export function setExpansions(ids: string[]) {
-  unlockedDistricts = DISTRICTS.filter((d) => ids.includes(d.id));
-  const keep = EMPTY_PLOTS.filter((p) => BASE_PLOT_IDS.includes(p.id));
-  EMPTY_PLOTS.length = 0;
-  EMPTY_PLOTS.push(...keep, ...unlockedDistricts.flatMap((d) => d.plots));
-}
-export function unlockedIds(): string[] {
-  return unlockedDistricts.map((d) => d.id);
-}
-/** 다음에 열 수 있는 구역(없으면 다 열림) */
-export function nextDistrict(): District | undefined {
-  return DISTRICTS.find((d) => !unlockedDistricts.includes(d));
-}
-/** 땅이 있는 범위(카메라 맞춤용) */
-export function landBounds() {
-  let w = MAP_W;
-  let h = MAP_H;
-  for (const d of unlockedDistricts) {
-    w = Math.max(w, d.area.x + d.area.w);
-    h = Math.max(h, d.area.y + d.area.h);
-  }
-  return { w, h };
-}
 
 /** 고정 프로젝트 부지(지금은 없음) */
 export const PROJECT_PLOTS: Plot[] = [];
@@ -126,6 +69,7 @@ export const STATIC_BUILDINGS: StaticBuilding[] = [
 ];
 
 export const PROPS: Prop[] = [
+  // ── 광장·기본 구역 ──
   { kind: 'planter', x: 11, y: 10, w: 2, h: 2 },
   { kind: 'lamp', x: 9, y: 9 },
   { kind: 'lamp', x: 14, y: 9 },
@@ -134,46 +78,91 @@ export const PROPS: Prop[] = [
   { kind: 'bench', x: 10, y: 14 },
   { kind: 'tree', x: 1, y: 1 },
   { kind: 'tree', x: 9, y: 2 },
-  { kind: 'tree', x: 1, y: 7 },
+  { kind: 'tree', x: 1, y: 9 },
   { kind: 'tree', x: 10, y: 5 },
-  { kind: 'tree', x: 22, y: 7 },
+  { kind: 'tree-blossom', x: 23, y: 4 },
   { kind: 'tree', x: 1, y: 15 },
   { kind: 'tree', x: 9, y: 19 },
-  { kind: 'tree', x: 16, y: 19 },
+  { kind: 'tree-autumn', x: 16, y: 19 },
   { kind: 'tree', x: 22, y: 14 },
-  { kind: 'tree', x: 8, y: 22 },
+  { kind: 'tree-autumn', x: 6, y: 22 },
+  { kind: 'flowers', x: 11, y: 4, v: 0 },
+  { kind: 'flowers', x: 1, y: 4, v: 1 },
+  { kind: 'flowers', x: 18, y: 14, v: 2 },
+  { kind: 'flowers', x: 17, y: 9, v: 3 },
+  { kind: 'signpost', x: 7, y: 9 },
+  { kind: 'mailbox', x: 10, y: 17 },
+  { kind: 'well', x: 4, y: 15 },
+  { kind: 'crates', x: 2, y: 6 },
+  { kind: 'pumpkins', x: 14, y: 20 },
+  { kind: 'pumpkins', x: 7, y: 16, v: 1 },
+  { kind: 'bush', x: 17, y: 15 },
+  { kind: 'bush', x: 2, y: 22 },
+  { kind: 'rock', x: 1, y: 12 },
+  { kind: 'rock', x: 0, y: 20, v: 1 },
+  { kind: 'lily', x: 21, y: 19 },
+  { kind: 'lily', x: 19, y: 24, v: 1 },
+  { kind: 'lily', x: 24, y: 25 },
+  // ── 동쪽 언덕 ──
+  { kind: 'tree', x: 30, y: 1 },
+  { kind: 'tree-blossom', x: 30, y: 12 },
+  { kind: 'lamp', x: 29, y: 6 },
+  { kind: 'tree', x: 24, y: 12 },
+  { kind: 'flowers', x: 30, y: 4, v: 4 },
+  { kind: 'pumpkins', x: 31, y: 10 },
+  { kind: 'tree-autumn', x: 30, y: 15 },
+  { kind: 'tree-autumn', x: 31, y: 18 },
+  { kind: 'tree-autumn', x: 28, y: 15 },
+  { kind: 'haybale', x: 28, y: 18 },
+  { kind: 'crates', x: 30, y: 20 },
+  { kind: 'lamp', x: 30, y: 22 },
+  { kind: 'dock', x: 25, y: 21, w: 2, h: 1 },
+  { kind: 'boat', x: 23, y: 22 },
+  { kind: 'rock', x: 29, y: 25 },
+  { kind: 'bush', x: 31, y: 26 },
+  // ── 남쪽 들판 ──
+  { kind: 'tree', x: 1, y: 30 },
+  { kind: 'tree', x: 12, y: 31 },
+  { kind: 'lamp', x: 7, y: 25 },
+  { kind: 'bench', x: 9, y: 30 },
+  { kind: 'stall', x: 15, y: 24, w: 2, h: 1 },
+  { kind: 'campfire', x: 15, y: 28 },
+  { kind: 'picnic', x: 17, y: 30 },
+  { kind: 'fence', x: 1, y: 31, w: 6, h: 1 },
+  { kind: 'flowers', x: 6, y: 24, v: 2 },
+  { kind: 'flowers', x: 20, y: 29, v: 0 },
+  { kind: 'flowers', x: 22, y: 30, v: 3 },
+  { kind: 'flowers', x: 24, y: 29, v: 1 },
+  { kind: 'haybale', x: 28, y: 29, v: 1 },
+  { kind: 'tree-autumn', x: 30, y: 28 },
+  { kind: 'tree-blossom', x: 26, y: 31 },
+  { kind: 'pumpkins', x: 1, y: 25, v: 1 },
+  { kind: 'bush', x: 0, y: 27 },
+  { kind: 'rock', x: 14, y: 31, v: 1 },
 ];
 
-/** 구역에만 있는 소품(열렸을 때만 그린다) */
-export const DISTRICT_PROPS: Record<District['id'], Prop[]> = {
-  e1: [{ kind: 'tree', x: 30, y: 1 }, { kind: 'tree', x: 30, y: 12 }, { kind: 'lamp', x: 29, y: 6 }, { kind: 'tree', x: 24, y: 12 }],
-  s1: [{ kind: 'tree', x: 1, y: 30 }, { kind: 'tree', x: 12, y: 30 }, { kind: 'lamp', x: 7, y: 25 }, { kind: 'bench', x: 9, y: 30 }],
-  e2: [{ kind: 'tree', x: 38, y: 1 }, { kind: 'tree', x: 38, y: 12 }, { kind: 'lamp', x: 37, y: 6 }],
-  s2: [{ kind: 'tree', x: 1, y: 38 }, { kind: 'tree', x: 12, y: 38 }, { kind: 'lamp', x: 7, y: 33 }],
-};
+/** 물 위에 떠 있는 꾸밈(지면 층에 그리고 길 막기와 무관) */
+export const FLAT_DECOR: Prop['kind'][] = ['lily', 'dock', 'boat', 'picnic'];
 
 const inRect = (x: number, y: number, r: { x: number; y: number; w: number; h: number }) =>
   x >= r.x && y >= r.y && x < r.x + r.w && y < r.y + r.h;
 
-const ALL_PLOTS = [...PROJECT_PLOTS, ...EMPTY_PLOTS, ...STATIC_BUILDINGS.map((s) => s.plot), ...DISTRICTS.flatMap((d) => d.plots)];
+const ALL_PLOTS = [...PROJECT_PLOTS, ...EMPTY_PLOTS, ...STATIC_BUILDINGS.map((s) => s.plot)];
+
+/** 호수: 기본 구역 오른쪽 아래에서 동·남쪽 땅 사이까지 */
+const isLake = (x: number, y: number) => (x >= 18 && x <= 26 && y >= 17 && y <= 27 && !(x === 26 && (y === 17 || y === 27)) && !(x === 18 && y === 27)) || (x >= 20 && x <= 25 && y >= 15 && y <= 16);
 
 export function groundAt(x: number, y: number): Ground {
-  if (x < 0 || y < 0) return 'void';
-  if (x >= MAP_W || y >= MAP_H) {
-    const d = unlockedDistricts.find((z) => inRect(x, y, z.area));
-    if (!d) return 'void';
-    const road = d.road === 'h' ? y === 7 || y === 8 : x === 8;
-    const onPlot = d.plots.some((p) => inRect(x, y, p) || (p.entrance.x === x && p.entrance.y === y));
-    return road || onPlot ? 'paving' : 'grass';
-  }
-  if (x >= 18 && y >= 17) return 'water';
-  if (x >= 20 && y >= 15) return 'water';
+  if (x < 0 || y < 0 || x >= MAP_W || y >= MAP_H) return 'void';
+  if (isLake(x, y)) return 'water';
   const plaza = x >= 8 && x <= 15 && y >= 7 && y <= 15;
-  const mainRoad = y === 7 || y === 8 || x === 8 || x === 15 || (y >= 11 && y <= 12 && x >= 7 && x <= 16);
+  const mainRoad = y === 7 || y === 8 || x === 8 || (x === 15 && y <= 23) || (y >= 11 && y <= 12 && x >= 7 && x <= 16);
   const toHome = x >= 11 && x <= 14 && y >= 15 && y <= 18;
+  // 동쪽 언덕에서 호숫가 선착장으로 내려가는 길
+  const toDock = (x === 29 && y >= 9 && y <= 21) || (y === 21 && x >= 27 && x <= 29);
   const entrance = ALL_PLOTS.some((p) => p.entrance.x === x && p.entrance.y === y);
   const plot = ALL_PLOTS.some((p) => inRect(x, y, p));
-  if (plaza || mainRoad || toHome || entrance || plot) return 'paving';
+  if (plaza || mainRoad || toHome || toDock || entrance || plot) return 'paving';
   return 'grass';
 }
 
@@ -190,11 +179,11 @@ export function isPlotFree(id: string) {
 function blockedByObject(x: number, y: number): boolean {
   if ([...PROJECT_PLOTS, ...STATIC_BUILDINGS.map((s) => s.plot)].some((p) => inRect(x, y, p))) return true;
   if (EMPTY_PLOTS.some((p) => occupiedEmpty.has(p.id) && inRect(x, y, p))) return true;
-  return [...PROPS, ...unlockedDistricts.flatMap((d) => DISTRICT_PROPS[d.id])].some((p) => inRect(x, y, { x: p.x, y: p.y, w: p.w ?? 1, h: p.h ?? 1 }));
+  return PROPS.some((p) => inRect(x, y, { x: p.x, y: p.y, w: p.w ?? 1, h: p.h ?? 1 }));
 }
 
 export function isWalkable(x: number, y: number): boolean {
-  if (x < 0 || y < 0 || x >= WORLD_W || y >= WORLD_H) return false;
+  if (x < 0 || y < 0 || x >= MAP_W || y >= MAP_H) return false;
   const g = groundAt(x, y);
   if (g === 'water' || g === 'void') return false;
   return !blockedByObject(x, y);
@@ -204,4 +193,4 @@ export function plotById(id: string): Plot | undefined {
   return ALL_PLOTS.find((p) => p.id === id);
 }
 
-export type SpriteKey = `${BuildingType}-s${0 | 1 | 2 | 3}` | 'workshop-decayed' | 'workshop-repairing' | 'cafe' | 'home' | Prop['kind'];
+export type SpriteKey = `${BuildingType}-s${0 | 1 | 2 | 3}` | 'workshop-decayed' | 'workshop-repairing' | 'cafe' | 'home' | SpriteProp;

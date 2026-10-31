@@ -43,7 +43,6 @@ interface TownData {
   projects: Project[];
   townProjects: Project[];
   messages: Message[];
-  expansions?: string[];
 }
 
 interface AppState {
@@ -71,10 +70,6 @@ interface AppState {
   view: View | null;
   messages: Message[];
   demoTowns: Record<string, TownData>;
-  /** 이 마을에 열린 땅 구역 */
-  expansions: string[];
-  /** 땅 넓히기 창 */
-  expandOpen: boolean;
 
   boot: (opts: { mode: Mode; meId?: string }) => void;
   reload: () => Promise<void>;
@@ -113,11 +108,6 @@ interface AppState {
   createTown: (name: string) => Promise<void>;
   copyProject: (projectId: string, townId: string) => Promise<void>;
 
-  setExpandOpen: (v: boolean) => void;
-  /** 광고 시작 기록(서버가 자격 확인). 실패하면 null */
-  startExpansionAd: () => Promise<{ session: string; slot: string } | null>;
-  /** 광고를 끝까지 봤을 때 땅을 연다 */
-  claimExpansion: (session: string) => Promise<string | null>;
 
   saveAvatar: (a: Avatar) => void;
   savePrefs: (p: PlanPrefs) => void;
@@ -150,7 +140,6 @@ function demoInitial() {
     xp: 620,
     prefs: DEFAULT_PREFS,
     me: toFriend(ME, '나', 'online'),
-    expansions: [] as string[],
     demoTowns: {
       [t2.id]: {
         id: t2.id,
@@ -166,10 +155,7 @@ function demoInitial() {
 }
 
 type DemoSave = ReturnType<typeof demoInitial>;
-const DEMO_FIELDS = ['townId', 'townName', 'townOwnerId', 'friends', 'projects', 'townProjects', 'messages', 'today', 'xp', 'prefs', 'me', 'demoTowns', 'expansions'] as const;
-const EXPANSION_ORDER = ['e1', 's1', 'e2', 's2'];
-/** 데모 광고 세션(시작 시각) */
-const demoAdSessions = new Map<string, number>();
+const DEMO_FIELDS = ['townId', 'townName', 'townOwnerId', 'friends', 'projects', 'townProjects', 'messages', 'today', 'xp', 'prefs', 'me', 'demoTowns'] as const;
 
 function readDemo(): Partial<DemoSave> | null {
   try {
@@ -242,7 +228,6 @@ export const useApp = create<AppState>((set, get) => {
     toast: null,
     lastGrowth: null,
     view: null,
-    expandOpen: false,
 
     boot: ({ mode, meId }) => {
       if (get().booted) return;
@@ -286,7 +271,6 @@ export const useApp = create<AppState>((set, get) => {
           townName: snap.townName,
           townOwnerId: snap.ownerId,
           towns: snap.towns,
-          expansions: snap.expansions,
           me: snap.me,
           friends: snap.friends.map((f) => {
             const s = status.get(f.id);
@@ -588,7 +572,7 @@ export const useApp = create<AppState>((set, get) => {
       }
       const target = s.demoTowns[townId];
       if (!target) return;
-      const stash: TownData = { id: s.townId!, name: s.townName, ownerId: s.townOwnerId ?? ME, friends: s.friends, projects: s.projects, townProjects: s.townProjects, messages: s.messages, expansions: s.expansions };
+      const stash: TownData = { id: s.townId!, name: s.townName, ownerId: s.townOwnerId ?? ME, friends: s.friends, projects: s.projects, townProjects: s.townProjects, messages: s.messages };
       const rest = { ...s.demoTowns, [stash.id]: stash };
       delete rest[townId];
       set({
@@ -599,7 +583,6 @@ export const useApp = create<AppState>((set, get) => {
         projects: target.projects,
         townProjects: target.townProjects,
         messages: target.messages,
-        expansions: target.expansions ?? [],
         demoTowns: rest,
         selectedId: null,
         view: null,
@@ -660,53 +643,6 @@ export const useApp = create<AppState>((set, get) => {
       set({ demoTowns: { ...s.demoTowns, [townId]: { ...target, projects: [...target.projects, copy] } } });
       syncTowns();
       get().notify(`‘${p.title}’를 ‘${target.name}’에 복사했어요`, 'good');
-    },
-
-    setExpandOpen: (v) => set({ expandOpen: v }),
-
-    startExpansionAd: async () => {
-      const s = get();
-      if (s.mode === 'live') {
-        try {
-          const r = await live.startExpansionAd(s.townId!);
-          return { session: r.session, slot: r.slot };
-        } catch (e) {
-          get().notify(friendlyError(e), 'warn');
-          return null;
-        }
-      }
-      const slot = EXPANSION_ORDER.find((x) => !s.expansions.includes(x));
-      if (!slot) {
-        get().notify('이 마을은 더 넓힐 땅이 없어요', 'warn');
-        return null;
-      }
-      const id = localId('ad');
-      demoAdSessions.set(id, Date.now());
-      return { session: id, slot };
-    },
-
-    claimExpansion: async (session) => {
-      const s = get();
-      if (s.mode === 'live') {
-        try {
-          const slot = await live.claimExpansion(session);
-          await get().reload();
-          return slot;
-        } catch (e) {
-          get().notify(friendlyError(e), 'warn');
-          return null;
-        }
-      }
-      const started = demoAdSessions.get(session);
-      if (!started || Date.now() - started < 15_000) {
-        get().notify('광고를 끝까지 봐야 땅이 열려요', 'warn');
-        return null;
-      }
-      demoAdSessions.delete(session);
-      const slot = EXPANSION_ORDER.find((x) => !s.expansions.includes(x));
-      if (!slot) return null;
-      set({ expansions: [...s.expansions, slot] });
-      return slot;
     },
 
     saveAvatar: (a) => {

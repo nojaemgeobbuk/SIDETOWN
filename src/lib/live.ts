@@ -26,7 +26,6 @@ export interface TownSnapshot {
   today: ISODate;
   prefs: PlanPrefs;
   /** 열린 땅 구역(e1·s1·e2·s2) */
-  expansions: string[];
 }
 
 /** 사용자 시간대 기준 오늘(YYYY-MM-DD) */
@@ -65,11 +64,7 @@ export function friendlyError(e: unknown): string {
   if (/demolition finished/.test(m)) return '철거가 이미 끝났어요';
   if (/not completed/.test(m)) return '완공한 프로젝트만 명예의 전당에 올릴 수 있어요';
   if (/projects_town_id_plot_id_key|duplicate key/.test(m)) return '그 부지는 이미 쓰고 있어요. 다른 빈 부지를 골라 주세요';
-  if (/plot locked/.test(m)) return '아직 열리지 않은 땅이에요';
-  if (/ad too short/.test(m)) return '광고를 끝까지 봐야 땅이 열려요';
-  if (/ad limit/.test(m)) return '오늘은 땅을 3번 넓혔어요. 내일 다시 넓힐 수 있어요';
-  if (/no more land/.test(m)) return '이 마을은 더 넓힐 땅이 없어요';
-  if (/ad expired|already claimed/.test(m)) return '광고 시간이 지났어요. 다시 시도해 주세요';
+  if (/plot locked|bad plot/.test(m)) return '마을에 없는 부지예요. 새로고침해 주세요';
   if (/forbidden/.test(m)) return '권한이 없어요';
   if (/not authenticated|JWT/.test(m)) return '로그인이 만료됐어요. 다시 로그인해 주세요';
   if (/Failed to fetch|NetworkError/.test(m)) return '연결이 불안정해요. 잠시 뒤에 다시 시도해 주세요';
@@ -119,7 +114,7 @@ export async function loadTown(meId: string): Promise<TownSnapshot> {
   const townId = unwrap(townIdRaw as any) as string | null;
   if (!townId) throw new LiveError('no town');
 
-  const [town, members, profiles, projects, messages, reads, xp, exps] = await Promise.all([
+  const [town, members, profiles, projects, messages, reads, xp] = await Promise.all([
     sb.from('towns').select('id, name, owner_id').eq('id', townId).maybeSingle(),
     sb.from('town_members').select('user_id, role').eq('town_id', townId),
     sb.from('profiles').select('user_id, nickname, avatar, plan_prefs'),
@@ -127,7 +122,6 @@ export async function loadTown(meId: string): Promise<TownSnapshot> {
     sb.from('messages').select('*').eq('town_id', townId).order('created_at', { ascending: false }).limit(300),
     sb.from('message_reads').select('message_id'),
     sb.rpc('my_xp'),
-    sb.from('town_expansions').select('slot').eq('town_id', townId),
   ]);
   const t = unwrap(town as any) as Row | null;
   if (!t) throw new LiveError('no town');
@@ -172,8 +166,6 @@ export async function loadTown(meId: string): Promise<TownSnapshot> {
     xp: (unwrap(xp as any) as number) ?? 0,
     today,
     prefs: { ...DEFAULT_PREFS, ...(mine?.plan_prefs ?? {}) },
-    // 땅 넓히기 마이그레이션 전이면 표가 없을 수 있다 → 기본 땅만
-    expansions: exps.error ? [] : ((exps.data as Row[]) ?? []).map((r) => r.slot),
   };
 }
 
@@ -252,10 +244,6 @@ export const live = {
   // 여러 마을
   switchTown: (townId: string) => rpc('switch_town', { p_town: townId }),
   createTown: (name: string) => rpc<string>('create_town', { p_name: name, p_nickname: '' }),
-
-  // 땅 넓히기(보상형 광고)
-  startExpansionAd: (townId: string) => rpc<{ session: string; slot: string; min_seconds: number }>('start_expansion_ad', { p_town: townId }),
-  claimExpansion: (session: string) => rpc<string>('claim_expansion', { p_session: session }),
 
   // 프로필
   saveAvatar: (a: Avatar) => rpc('save_avatar', { p: a }),

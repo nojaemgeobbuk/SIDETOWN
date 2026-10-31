@@ -15,24 +15,22 @@ import { avatarCanvas } from '@/lib/avatar-canvas';
 import { avatarKey, PRESETS } from '@/lib/avatar';
 import { findPath, nearestWalkable, type Cell } from './astar';
 import { cellCenter, facingFor, isoToScreen, screenToCell, TILE_H, TILE_W, type Facing } from './iso';
+import { makeDecor } from './decor';
 import {
-  DISTRICT_PROPS,
-  DISTRICTS,
   EMPTY_PLOTS,
+  FLAT_DECOR,
   groundAt,
-  landBounds,
-  nextDistrict,
-  setExpansions as setMapExpansions,
-  unlockedIds,
-  WORLD_H,
-  WORLD_W,
+  MAP_H as WORLD_H,
+  MAP_W as WORLD_W,
   isWalkable,
   isPlotFree,
   plotById,
   PROPS,
   setOccupiedPlots,
   STATIC_BUILDINGS,
+  type DecorKind,
   type Plot,
+  type Prop,
 } from './map';
 
 export interface BuildingVM {
@@ -62,8 +60,6 @@ export interface TownCallbacks {
   onEmptyPlot: (plotId: string) => void;
   onSelectFriend: (friendId: string) => void;
   onBackgroundTap: () => void;
-  /** 섬 가장자리 ‘+’(땅 넓히기) */
-  onExpand?: (districtId: string) => void;
 }
 
 const ASSET_BASE = '/assets';
@@ -89,6 +85,49 @@ const COLORS = {
   panel: 0x121725,
   line: 0x2a3142,
 };
+
+/** 그림 소품의 화면 높이(px) */
+const SPRITE_PROP_H = { tree: 104, 'tree-autumn': 100, 'tree-blossom': 100, bush: 54, lamp: 84, bench: 44, planter: 96 } as const;
+
+/** 나무 그림의 잎(초록)만 다른 색으로 바꾼 텍스처: 단풍나무·벚나무 */
+async function recolorTree(src: string, kind: 'autumn' | 'blossom'): Promise<Texture | null> {
+  try {
+    const img = new Image();
+    img.src = src;
+    await img.decode();
+    const c = document.createElement('canvas');
+    c.width = img.naturalWidth;
+    c.height = img.naturalHeight;
+    const ctx = c.getContext('2d', { willReadFrequently: true })!;
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(img, 0, 0);
+    const d = ctx.getImageData(0, 0, c.width, c.height);
+    const a = d.data;
+    for (let i = 0; i < a.length; i += 4) {
+      if (a[i + 3] < 10) continue;
+      const r = a[i], g = a[i + 1], b = a[i + 2];
+      // 초록이 가장 센 픽셀 = 잎
+      if (!(g > r && g >= b && g - Math.min(r, b) > 14)) continue;
+      const l = (r + g + b) / 3 / 255;
+      let nr, ng, nb;
+      if (kind === 'autumn') {
+        const k = 0.55 + l * 1.4;
+        const mix = ((i / 4) % 7) / 7 > 0.6; // 군데군데 노란 잎
+        nr = 205 * k; ng = (mix ? 140 : 92) * k; nb = 40 * k;
+      } else {
+        const k = 0.6 + l * 1.3;
+        nr = 232 * k; ng = 150 * k; nb = 178 * k;
+      }
+      a[i] = Math.min(255, nr); a[i + 1] = Math.min(255, ng); a[i + 2] = Math.min(255, nb);
+    }
+    ctx.putImageData(d, 0, 0);
+    const t = Texture.from(c);
+    t.source.scaleMode = 'nearest';
+    return t;
+  } catch {
+    return null;
+  }
+}
 
 const FONT = '"IBM Plex Sans KR", system-ui, sans-serif';
 
@@ -128,10 +167,8 @@ export class TownRenderer {
   private world = new Container();
   private ground = new Container();
   private tiles = new Container();
-  /** ‘+’ 버튼을 이루는 조각(미리보기 점선·버튼·이름표) */
-  private expandParts: Container[] = [];
-  private expandBtn: Container | null = null;
-  private drawnDistrictProps = new Set<string>();
+  /** 움직이는 꾸밈(모닥불·배) */
+  private decorTicks: ((t: number) => void)[] = [];
   private objects = new Container();
   private labels = new Container();
   private tex: Record<string, Texture> = {};
@@ -198,6 +235,9 @@ export class TownRenderer {
     for (const k of CHAR_KEYS) urls[`char-${k}`] = `${ASSET_BASE}/character/${k}.png`;
     const loaded = await Assets.load(Object.entries(urls).map(([alias, src]) => ({ alias, src })));
     this.tex = loaded as Record<string, Texture>;
+    const [autumn, blossom] = await Promise.all([recolorTree(urls.tree, 'autumn'), recolorTree(urls.tree, 'blossom')]);
+    if (autumn) this.tex['tree-autumn'] = autumn;
+    if (blossom) this.tex['tree-blossom'] = blossom;
     try {
       await document.fonts.ready;
     } catch {
@@ -294,83 +334,6 @@ export class TownRenderer {
     this.tiles.addChild(g);
   }
 
-  // ───────── 땅 넓히기 ─────────
-  /** 열린 구역을 반영: 땅·부지·소품을 더 그리고 ‘+’ 버튼을 다음 자리로 옮긴다 */
-  setExpansions(ids: string[]) {
-    if (!this.app.renderer || this.destroyed) return;
-    const before = unlockedIds().join(',');
-    setMapExpansions(ids);
-    if (before === unlockedIds().join(',') && this.expandParts.length) return;
-    this.drawTiles();
-    this.drawEmptyPlots();
-    this.drawDistrictProps();
-    this.drawExpandButton();
-    // 땅이 바뀌면(처음 불러온 넓힌 땅 포함) 전체가 보이게 다시 맞춘다
-    if (before !== unlockedIds().join(',')) this.refit();
-  }
-
-  private drawDistrictProps() {
-    for (const id of unlockedIds()) {
-      if (this.drawnDistrictProps.has(id)) continue;
-      this.drawnDistrictProps.add(id);
-      for (const p of DISTRICT_PROPS[id as keyof typeof DISTRICT_PROPS]) this.placeProp(p);
-    }
-  }
-
-  private drawExpandButton() {
-    for (const p of this.expandParts) p.destroy({ children: true });
-    this.expandParts = [];
-    this.expandBtn = null;
-    const d = nextDistrict();
-    if (!d || this.focus.on) return;
-    const c = new Container();
-    // 열릴 자리 미리보기(점선)
-    const outline = new Graphics();
-    const { x, y, w, h } = d.area;
-    const pts = [isoToScreen(x, y), isoToScreen(x + w, y), isoToScreen(x + w, y + h), isoToScreen(x, y + h)];
-    for (let i = 0; i < 4; i++) {
-      const a = pts[i];
-      const b = pts[(i + 1) % 4];
-      const len = Math.hypot(b.x - a.x, b.y - a.y);
-      const n = Math.floor(len / 12);
-      for (let k = 0; k < n; k += 2) {
-        const t0 = k / n;
-        const t1 = Math.min(1, (k + 1) / n);
-        outline.moveTo(a.x + (b.x - a.x) * t0, a.y + (b.y - a.y) * t0).lineTo(a.x + (b.x - a.x) * t1, a.y + (b.y - a.y) * t1);
-      }
-    }
-    outline.stroke({ width: 1.5, color: COLORS.amber, alpha: 0.35 });
-    const at = isoToScreen(d.anchor.x, d.anchor.y);
-    const btn = new Container();
-    const disc = new Graphics().circle(0, 0, 15).fill({ color: COLORS.panel, alpha: 0.95 }).stroke({ width: 2, color: COLORS.amber });
-    const plus = new Graphics().moveTo(-6, 0).lineTo(6, 0).moveTo(0, -6).lineTo(0, 6).stroke({ width: 2.5, color: COLORS.amber });
-    btn.addChild(disc, plus);
-    btn.position.set(at.x, at.y);
-    btn.eventMode = 'static';
-    btn.cursor = 'pointer';
-    btn.hitArea = new Rectangle(-20, -20, 40, 40);
-    const tip = this.makeLabel('땅 넓히기 · 부지 2칸', false, COLORS.amber);
-    tip.c.position.set(at.x, at.y - 20);
-    tip.c.visible = false;
-    btn.on('pointerover', () => (tip.c.visible = true));
-    btn.on('pointerout', () => (tip.c.visible = false));
-    btn.on('pointertap', (e: FederatedPointerEvent) => {
-      if (this.dragging) return;
-      this.consumed = true;
-      e.stopPropagation();
-      this.cb.onExpand?.(d.id);
-    });
-    c.addChild(outline);
-    this.ground.addChild(c);
-    const top = new Container();
-    top.addChild(btn);
-    top.zIndex = 9000;
-    this.objects.addChild(top);
-    this.labels.addChild(tip.c);
-    this.expandParts = [c, top, tip.c];
-    this.expandBtn = btn;
-  }
-
   private drawEmptyPlots() {
     for (const p of EMPTY_PLOTS) {
       if (this.emptyPlotNodes.has(p.id)) continue;
@@ -444,19 +407,30 @@ export class TownRenderer {
     for (const p of PROPS) this.placeProp(p);
   }
 
-  private placeProp(p: (typeof PROPS)[number]) {
-    {
-      const sp = new Sprite(this.tex[p.kind]);
-      sp.anchor.set(0.5, 1);
-      const w = p.w ?? 1;
-      const h = p.h ?? 1;
-      const targetH = p.kind === 'tree' ? 104 : p.kind === 'lamp' ? 84 : p.kind === 'bench' ? 44 : 96;
-      sp.scale.set(targetH / sp.texture.height);
-      const base = isoToScreen(p.x + w / 2 + 0.25, p.y + h / 2 + 0.25);
-      sp.position.set(base.x, base.y + (p.kind === 'planter' ? 14 : 4));
-      sp.zIndex = p.x + w + p.y + h - 0.2;
-      this.objects.addChild(sp);
+  private placeProp(p: Prop) {
+    const w = p.w ?? 1;
+    const h = p.h ?? 1;
+    if (!(p.kind in SPRITE_PROP_H)) {
+      const d = makeDecor(p as Prop & { kind: DecorKind });
+      if (FLAT_DECOR.includes(p.kind)) this.ground.addChild(d.node);
+      else {
+        d.node.zIndex = p.x + w + p.y + h - 0.2;
+        this.objects.addChild(d.node);
+      }
+      if (d.tick) this.decorTicks.push(d.tick);
+      return;
     }
+    const key = p.kind === 'bush' ? 'tree' : p.kind;
+    const sp = new Sprite(this.tex[key] ?? this.tex.tree);
+    sp.anchor.set(0.5, 1);
+    const targetH = SPRITE_PROP_H[p.kind as keyof typeof SPRITE_PROP_H];
+    sp.scale.set(targetH / sp.texture.height);
+    // 같은 나무가 줄지어 보이지 않게 좌우를 섞는다
+    if ((p.kind.startsWith('tree') || p.kind === 'bush') && hash(p.x, p.y) > 0.5) sp.scale.x *= -1;
+    const base = isoToScreen(p.x + w / 2 + 0.25, p.y + h / 2 + 0.25);
+    sp.position.set(base.x, base.y + (p.kind === 'planter' ? 14 : 4));
+    sp.zIndex = p.x + w + p.y + h - 0.2;
+    this.objects.addChild(sp);
   }
 
   private makeLabel(text: string, strong: boolean, dot?: number) {
@@ -836,9 +810,6 @@ export class TownRenderer {
     if (!this.app.renderer || this.destroyed) return;
     const was = this.focus;
     this.focus = o;
-    if (o.on !== was.on) {
-      for (const p of this.expandParts) p.visible = !o.on;
-    }
     if (o.on && !was.on) {
       this.panelOffset = 0;
       this.camTarget = null;
@@ -1015,7 +986,8 @@ export class TownRenderer {
     const w = this.app.screen.width;
     const h = this.app.screen.height;
     // 섬 전체(건물 높이 포함) 경계: x ∈ [−H·32, W·32], y ∈ [−180, (W+H)·16 + 측면] — W·H는 넓어진 땅까지
-    const { w: LW, h: LH } = landBounds();
+    const LW = WORLD_W;
+    const LH = WORLD_H;
     const contentW = ((LW + LH) * TILE_W) / 2;
     const top = -180;
     const bottom = ((LW + LH) * TILE_H) / 2 + 24;
@@ -1024,7 +996,7 @@ export class TownRenderer {
       ? Math.max(0.36, Math.min(0.6, w / 900))
       : Math.max(0.45, Math.min(1.2, (w / contentW) * 0.96, (h / (bottom - top)) * 0.96));
     const cx = ((LW - LH) * TILE_W) / 4;
-    const cy = narrow ? isoToScreen(11, 10).y : (top + bottom) / 2;
+    const cy = narrow ? isoToScreen(13, 12).y : (top + bottom) / 2;
     this.world.scale.set(scale);
     this.world.position.set(w / 2 - cx * scale, (narrow ? h * 0.42 : h / 2) - cy * scale);
   }
@@ -1125,7 +1097,7 @@ export class TownRenderer {
     const bob = this.reduced ? 0 : moving ? Math.abs(Math.sin(this.time / 110)) * 3 : Math.sin(this.time / 700) * 0.6;
     this.syncCharacter(bob);
     if (this.focus.on) this.tickSelf(dt, moving);
-    if (this.expandBtn && !this.reduced) this.expandBtn.scale.set(1 + Math.sin(this.time / 500) * 0.07);
+    if (!this.reduced) for (const f of this.decorTicks) f(this.time);
 
     if (!this.reduced) this.tickWalkers(dt);
     this.tickBursts(dt);
